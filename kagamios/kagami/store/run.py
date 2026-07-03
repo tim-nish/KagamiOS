@@ -1,0 +1,59 @@
+import uuid
+from pathlib import Path
+
+import yaml
+
+from kagami.paths import resolve_output_root
+from kagami.schema_version import CURRENT_SCHEMA_REGISTRY_VERSION, assert_run_mutable
+from kagami.store.atomic import atomic_write
+from kagami.store.locking import acquire_run_lock, write_lease
+from kagami.timeutil import utc_now_iso
+
+
+def generate_run_id() -> str:
+    return f"run-{uuid.uuid4().hex[:12]}"
+
+
+def open_run(run_id: str | None = None, output_root: Path | None = None) -> dict:
+    output_root = output_root if output_root is not None else resolve_output_root()
+    runs_dir = output_root / "runs"
+    run_id = run_id or generate_run_id()
+    run_dir = runs_dir / run_id
+    lock_path = run_dir / ".lock"
+
+    if run_dir.exists():
+        manifest_path = run_dir / "manifest.yaml"
+        manifest = yaml.safe_load(manifest_path.read_text()) or {}
+        assert_run_mutable(manifest.get("schema_registry_version"))
+        with acquire_run_lock(lock_path):
+            lease = write_lease(run_dir / ".lease")
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "path": str(run_dir),
+            "created": False,
+            "lease": lease,
+        }
+
+    run_dir.mkdir(parents=True)
+    with acquire_run_lock(lock_path):
+        lease = write_lease(run_dir / ".lease")
+        manifest = {
+            "run_id": run_id,
+            "schema_registry_version": CURRENT_SCHEMA_REGISTRY_VERSION,
+            "created": utc_now_iso(),
+            "rooting_intuition_note": None,
+            "depth_budgets": None,
+            "monitoring": None,
+            "state_cache": {},
+        }
+        atomic_write(run_dir / "manifest.yaml", yaml.safe_dump(manifest, sort_keys=False))
+        (run_dir / "events.jsonl").touch()
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "path": str(run_dir),
+        "created": True,
+        "lease": lease,
+    }
