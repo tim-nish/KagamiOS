@@ -33,6 +33,20 @@ This is the **only** sanctioned way to touch the output root. The PreToolUse hoo
    ```
 2. If the open call reports integrity violations, stale claims reaped, or a torn-operation repair, tell the researcher plainly before continuing — these are `kagami run open`'s own consistency-repair pass (AD-15), not something to silently proceed past.
 
+## Hard rule: never `accept` a terminal-adjacent artifact without validating its exit criteria first
+
+Story 7.5's golden toy run found that `kagami accept` only checks generic common-metadata completeness — it does **not** check a type's own exit criteria (e.g. a Gap Register's `why_does_this_gap_exist`/`meaningful_to_me`, a Cluster Dossier's representative-paper `human_read` flags). It is possible to `accept` a Gap Register that's missing required content, and `kagami locate check-terminal` will then report the run as MVP-complete on that incomplete artifact — a real, currently-uncaught failure mode, not a hypothetical one (see `story-7.5-verification.md`'s Finding #1).
+
+Until `kagami accept` enforces this itself, **you must call the matching validator before ever calling `accept` on a Cluster Dossier, Landscape Synthesis, or Gap Register**, and treat a non-empty `violations` list as a hard stop, not a suggestion:
+
+```
+uv run --project ${CLAUDE_PLUGIN_ROOT} kagami dossier validate-deepen-exit --run-id <run-id> --art-id <id>
+uv run --project ${CLAUDE_PLUGIN_ROOT} kagami synthesize validate --run-id <run-id> --art-id <id>
+uv run --project ${CLAUDE_PLUGIN_ROOT} kagami locate validate-locate-exit --run-id <run-id> --art-id <id>
+```
+
+This is skill-level discipline, not a core-enforced guarantee (AD-1's honest-gap framing applies here too) — it is a stopgap until the core itself closes this, not a substitute for closing it.
+
 ## Frame: from raw intuition to an accepted Inquiry Frame
 
 Frame is the only state this skeleton drives end-to-end today (Story 7.1). Later stories add Map and beyond through role subagents (Story 7.3); nothing here should be extended to call an agent that doesn't exist yet.

@@ -4,12 +4,26 @@ import pytest
 
 from kagami.kernel.synthesize import (
     SynthesizeError,
+    create_landscape_synthesis,
     validate_landscape_synthesis,
     validate_solved_open_table,
     validate_source_dossiers_accepted,
     synthesize_write,
 )
 from kagami.store.artifact import accept_artifact, create_artifact, read_current, review_artifact
+from kagami.store.run import open_run
+
+
+def test_create_landscape_synthesis_is_reachable_without_a_direct_create_artifact_import(tmp_path):
+    open_run(run_id="run-ls-create", output_root=tmp_path / "_out")
+    run_dir = tmp_path / "_out" / "runs" / "run-ls-create"
+
+    result = create_landscape_synthesis(run_dir)
+    assert result["ok"] is True
+
+    frontmatter, _ = read_current(run_dir, "landscape-synthesis", result["id"])
+    assert frontmatter["type"] == "landscape-synthesis"
+    assert frontmatter["status"] == "draft"
 
 
 def _base_fields(**overrides):

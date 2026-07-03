@@ -102,3 +102,38 @@ def test_a_successful_call_is_never_escalated(tmp_path, monkeypatch, capsys):
     assert exit_code == 0
     assert result["ok"] is True
     assert "status" not in result
+
+
+def test_a_repeated_violations_check_never_escalates_even_past_the_ceiling(tmp_path, monkeypatch, capsys):
+    """Discovered live during the Story 7.5 toy run: validate_deepen_exit
+    (and its siblings validate_locate_exit, validate_landscape_synthesis,
+    validate_minimal_profile) return {"ok": False, "violations": [...]}
+    as their *normal* not-yet-satisfied result, not a real refusal — a
+    researcher legitimately re-checking the same incomplete artifact more
+    than the ceiling's worth of times (while fixing it one field at a
+    time) must never see requires_researcher for that."""
+    from kagami.store.artifact import create_artifact
+    from kagami.store.run import open_run
+
+    monkeypatch.chdir(tmp_path)
+    open_run(run_id="run-violations-check", output_root=tmp_path / "_kagami-output")
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-violations-check"
+    dossier = create_artifact(
+        run_dir,
+        "cluster-dossier",
+        {
+            "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
+            "summary": "", "representative_papers": [{"paper_id": "ppr-1", "human_read": False}],
+        },
+        sections={"evolution": "draft text"},
+    )
+    capsys.readouterr()
+
+    outcomes = []
+    for _ in range(5):
+        main(["dossier", "validate-deepen-exit", "--run-id", "run-violations-check", "--art-id", dossier["id"]])
+        outcomes.append(json.loads(capsys.readouterr().out))
+
+    assert all(o["ok"] is False for o in outcomes)  # genuinely still incomplete every time
+    assert all(o.get("status") != "requires_researcher" for o in outcomes)
+    assert all("violations" in o for o in outcomes)

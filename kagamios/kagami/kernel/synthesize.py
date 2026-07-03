@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from kagami.events import append_event
-from kagami.store.artifact import read_current, update_frontmatter_field
+from kagami.registry import load_registry
+from kagami.store.artifact import create_artifact, read_current, update_frontmatter_field
 
 LANDSCAPE_SYNTHESIS_TYPE = "landscape-synthesis"
 SOLVED_OPEN_TABLE_FIELD = "solved_open_table"
@@ -13,6 +14,29 @@ VALID_STATUSES = (STATUS_SOLVED, STATUS_OPEN)
 
 class SynthesizeError(Exception):
     pass
+
+
+def create_landscape_synthesis(run_dir: Path, registry=None) -> dict:
+    """Story 7.5: discovered missing while driving the golden toy run —
+    `synthesize_write` only ever writes a field on an *already-existing*
+    Landscape Synthesis; nothing in Epic 4 exposed how that artifact comes
+    to exist through the chokepoint (tests instantiate it via a direct
+    `create_artifact` import). This is the minimal CLI-reachable creation
+    path, empty until `synthesize_write` fills in `solved_open_table`.
+    """
+    registry = registry or load_registry()
+    return create_artifact(
+        run_dir,
+        LANDSCAPE_SYNTHESIS_TYPE,
+        {
+            "depends_on": [],
+            "elicited_from": [],
+            "decided_by": "ai-drafted/human-reviewed",
+            "summary": "",
+        },
+        sections={},
+        registry=registry,
+    )
 
 
 def validate_solved_open_table(rows: list[dict]) -> None:

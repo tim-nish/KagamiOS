@@ -31,7 +31,12 @@ from kagami.kernel.dissolution import (
     spin_off_salvaged_fragment,
     validate_dissolution_exit,
 )
-from kagami.kernel.dossier import DossierError, mark_representative_paper_read, validate_deepen_exit
+from kagami.kernel.dossier import (
+    DossierError,
+    create_cluster_dossier,
+    mark_representative_paper_read,
+    validate_deepen_exit,
+)
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.gate_trust import GateTrustError, approve_gate_loosening, propose_gate_loosening
@@ -39,6 +44,7 @@ from kagami.kernel.historian import HistorianError, historian_write
 from kagami.kernel.locate import (
     LocateError,
     check_mvp_terminal,
+    create_gap_register,
     locate_write,
     mark_gap_meaningful,
     record_micro_probe_evidence,
@@ -54,7 +60,12 @@ from kagami.kernel.repair import apply_tier2_repair, repair_artifact
 from kagami.kernel.scout import CorpusAccessError, search_corpus
 from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_skeptic_critique, skeptic_write
 from kagami.kernel.state_machine import StateMachineError, enter_state
-from kagami.kernel.synthesize import SynthesizeError, synthesize_write, validate_landscape_synthesis
+from kagami.kernel.synthesize import (
+    SynthesizeError,
+    create_landscape_synthesis,
+    synthesize_write,
+    validate_landscape_synthesis,
+)
 from kagami.paths import resolve_output_root
 from kagami.registry import RegistryError
 from kagami.schema_version import SchemaVersionError
@@ -280,6 +291,15 @@ def _cmd_historian_write(args: argparse.Namespace) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _cmd_dossier_create(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    representative_paper_ids = json.loads(args.representative_papers_json)
+    try:
+        return create_cluster_dossier(run_dir, args.field_map_id, representative_paper_ids)
+    except DossierError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _cmd_dossier_mark_read(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     try:
@@ -291,6 +311,11 @@ def _cmd_dossier_mark_read(args: argparse.Namespace) -> dict:
 def _cmd_dossier_validate_deepen_exit(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return validate_deepen_exit(run_dir, args.art_id)
+
+
+def _cmd_synthesize_create(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return create_landscape_synthesis(run_dir)
 
 
 def _cmd_synthesize_write(args: argparse.Namespace) -> dict:
@@ -306,6 +331,11 @@ def _cmd_synthesize_write(args: argparse.Namespace) -> dict:
 def _cmd_synthesize_validate(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return validate_landscape_synthesis(run_dir, args.art_id)
+
+
+def _cmd_locate_create(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return create_gap_register(run_dir, args.statement, args.evidence_of_absence)
 
 
 def _cmd_locate_write(args: argparse.Namespace) -> dict:
@@ -664,6 +694,14 @@ def build_parser() -> argparse.ArgumentParser:
     dossier_parser = subparsers.add_parser("dossier")
     dossier_subparsers = dossier_parser.add_subparsers(dest="dossier_command", required=True)
 
+    dossier_create_parser = dossier_subparsers.add_parser("create")
+    dossier_create_parser.add_argument("--run-id", dest="run_id", required=True)
+    dossier_create_parser.add_argument("--field-map-id", dest="field_map_id", required=True)
+    dossier_create_parser.add_argument(
+        "--representative-papers", dest="representative_papers_json", required=True
+    )
+    dossier_create_parser.set_defaults(func=_cmd_dossier_create)
+
     dossier_mark_read_parser = dossier_subparsers.add_parser("mark-read")
     dossier_mark_read_parser.add_argument("--run-id", dest="run_id", required=True)
     dossier_mark_read_parser.add_argument("--art-id", dest="art_id", required=True)
@@ -723,6 +761,10 @@ def build_parser() -> argparse.ArgumentParser:
     synthesize_parser = subparsers.add_parser("synthesize")
     synthesize_subparsers = synthesize_parser.add_subparsers(dest="synthesize_command", required=True)
 
+    synthesize_create_parser = synthesize_subparsers.add_parser("create")
+    synthesize_create_parser.add_argument("--run-id", dest="run_id", required=True)
+    synthesize_create_parser.set_defaults(func=_cmd_synthesize_create)
+
     synthesize_write_parser = synthesize_subparsers.add_parser("write")
     synthesize_write_parser.add_argument("--run-id", dest="run_id", required=True)
     synthesize_write_parser.add_argument("--art-id", dest="art_id", required=True)
@@ -738,6 +780,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     locate_parser = subparsers.add_parser("locate")
     locate_subparsers = locate_parser.add_subparsers(dest="locate_command", required=True)
+
+    locate_create_parser = locate_subparsers.add_parser("create")
+    locate_create_parser.add_argument("--run-id", dest="run_id", required=True)
+    locate_create_parser.add_argument("--statement", dest="statement", required=True)
+    locate_create_parser.add_argument(
+        "--evidence-of-absence", dest="evidence_of_absence", required=True
+    )
+    locate_create_parser.set_defaults(func=_cmd_locate_create)
 
     locate_write_parser = locate_subparsers.add_parser("write")
     locate_write_parser.add_argument("--run-id", dest="run_id", required=True)
@@ -906,7 +956,20 @@ def main(argv: list[str] | None = None) -> int:
         result = {"ok": False, "error": f"malformed JSON argument: {exc}"}
 
     run_id = getattr(args, "run_id", None)
-    if not result.get("ok") and run_id:
+    # AD-26(a) tracks true refusals, never a "violations" check's normal,
+    # expected not-yet-satisfied result. Several commands share the
+    # {"ok": len(violations) == 0, "violations": [...]} contract (e.g.
+    # validate_deepen_exit, validate_locate_exit, validate_landscape_
+    # synthesis, validate_minimal_profile) — a `False` there means "this
+    # artifact isn't done yet," not "this call failed." Discovered live
+    # while driving the Story 7.5 toy run: without this check, an ordinary
+    # validate-fix-validate-fix loop while completing a Gap Register would
+    # have wrongly escalated to requires_researcher after 3 legitimate
+    # checks. Detected structurally (the "violations" key), not by a
+    # command-name allowlist, so it covers this contract wherever it's
+    # used, including future callers.
+    is_informational_check = "violations" in result
+    if not result.get("ok") and run_id and not is_informational_check:
         # FR-48/AD-26(a): every refusal against a run is logged and checked
         # against the consecutive-identical-refusal ceiling — a
         # core-enforced backstop against a retry-storm burning tokens,

@@ -2,8 +2,31 @@ import json
 
 import pytest
 
-from kagami.kernel.dossier import DossierError, mark_representative_paper_read, validate_deepen_exit
-from kagami.store.artifact import accept_artifact, create_artifact, review_artifact
+from kagami.kernel.dossier import (
+    DossierError,
+    create_cluster_dossier,
+    mark_representative_paper_read,
+    validate_deepen_exit,
+)
+from kagami.store.artifact import accept_artifact, create_artifact, read_current, review_artifact
+from kagami.store.run import open_run
+
+
+def test_create_cluster_dossier_is_reachable_without_a_direct_create_artifact_import(tmp_path):
+    open_run(run_id="run-dossier-create", output_root=tmp_path / "_out")
+    run_dir = tmp_path / "_out" / "runs" / "run-dossier-create"
+
+    result = create_cluster_dossier(run_dir, "art-fieldmap1", ["ppr-1", "ppr-2"])
+    assert result["ok"] is True
+
+    frontmatter, sections = read_current(run_dir, "cluster-dossier", result["id"])
+    assert frontmatter["depends_on"] == ["art-fieldmap1@v1"]
+    assert frontmatter["representative_papers"] == [
+        {"paper_id": "ppr-1", "human_read": False},
+        {"paper_id": "ppr-2", "human_read": False},
+    ]
+    bodies = {s.title: s.body for s in sections}
+    assert bodies["evolution"] == ""
 
 
 def _base_fields(**overrides):

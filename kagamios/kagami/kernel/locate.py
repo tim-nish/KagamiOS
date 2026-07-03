@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from kagami.registry import load_registry
-from kagami.store.artifact import attempt_ai_write, human_write_section, is_gap_register_accepted, read_current
+from kagami.store.artifact import (
+    attempt_ai_write,
+    create_artifact,
+    human_write_section,
+    is_gap_register_accepted,
+    read_current,
+)
 
 GAP_REGISTER_TYPE = "gap-register"
 WHY_DOES_THIS_GAP_EXIST_FIELD = "why_does_this_gap_exist"
@@ -21,6 +27,43 @@ MEANINGFUL_TO_ME_OPTIONS = ("meaningful", "real-but-not-mine", "suspicious")
 
 class LocateError(Exception):
     pass
+
+
+def create_gap_register(run_dir: Path, statement: str, evidence_of_absence: str, registry=None) -> dict:
+    """Story 7.5: discovered missing while driving the golden toy run —
+    `locate_write` only ever writes a field on an *already-existing* Gap
+    Register; nothing in Epic 4 exposed how that artifact comes to exist
+    through the chokepoint. Minimal CLI-reachable creation path.
+
+    `why_does_this_gap_exist` and `meaningful_to_me` are schema-typed as
+    `enum` fields but `locate_write`/`mark_gap_meaningful` reach them
+    through `attempt_ai_write`, which only resolves *sections* (parsed
+    markdown bodies), never frontmatter fields directly — so both must be
+    seeded here as empty placeholder sections or every later write to them
+    is refused with "no section named ...". This exact mismatch was
+    already worked around in `tests/test_locate.py`'s own fixture helper;
+    this function had missed it until the toy run's real CLI-driven write
+    hit it live, refusing on the first attempt (see
+    story-7.5-verification.md).
+    """
+    registry = registry or load_registry()
+    return create_artifact(
+        run_dir,
+        GAP_REGISTER_TYPE,
+        {
+            "depends_on": [],
+            "elicited_from": [],
+            "decided_by": "ai-drafted/human-reviewed",
+            "summary": "",
+        },
+        sections={
+            "statement": statement,
+            "evidence_of_absence": evidence_of_absence,
+            "why_does_this_gap_exist": "",
+            "meaningful_to_me": "",
+        },
+        registry=registry,
+    )
 
 
 def locate_write(run_dir: Path, art_id: str, field_name: str, content: str, registry=None) -> dict:

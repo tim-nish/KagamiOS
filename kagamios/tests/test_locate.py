@@ -5,12 +5,49 @@ import pytest
 from kagami.kernel.locate import (
     LocateError,
     check_mvp_terminal,
+    create_gap_register,
     locate_write,
     mark_gap_meaningful,
     record_micro_probe_evidence,
     validate_locate_exit,
 )
 from kagami.store.artifact import RejectedWriteError, accept_artifact, create_artifact, read_current, review_artifact
+from kagami.store.run import open_run
+
+
+def test_create_gap_register_is_reachable_without_a_direct_create_artifact_import(tmp_path):
+    open_run(run_id="run-gr-create", output_root=tmp_path / "_out")
+    run_dir = tmp_path / "_out" / "runs" / "run-gr-create"
+
+    result = create_gap_register(run_dir, "no method handles X", "absence checked across 50 papers")
+    assert result["ok"] is True
+
+    frontmatter, sections = read_current(run_dir, "gap-register", result["id"])
+    assert frontmatter["type"] == "gap-register"
+    bodies = {s.title: s.body for s in sections}
+    assert bodies["statement"] == "no method handles X"
+    assert bodies["evidence_of_absence"] == "absence checked across 50 papers"
+    # why_does_this_gap_exist/meaningful_to_me are schema-typed enum fields
+    # but locate_write/mark_gap_meaningful reach them through
+    # attempt_ai_write, which only resolves sections — so both must exist
+    # as empty placeholder sections from creation, or every later write to
+    # them is refused (discovered live while driving the Story 7.5 toy
+    # run's Locate state).
+    assert bodies["why_does_this_gap_exist"] == ""
+    assert bodies["meaningful_to_me"] == ""
+
+
+def test_locate_write_reaches_why_does_this_gap_exist_on_a_freshly_created_gap_register(tmp_path):
+    from kagami.store.run import open_run as _open_run
+
+    _open_run(run_id="run-gr-write-fresh", output_root=tmp_path / "_out")
+    run_dir = tmp_path / "_out" / "runs" / "run-gr-write-fresh"
+
+    gap = create_gap_register(run_dir, "no method handles X", "absence checked across 50 papers")
+    # This is the exact call that failed live against the pre-fix
+    # create_gap_register — "no section named 'why_does_this_gap_exist'".
+    result = locate_write(run_dir, gap["id"], "why_does_this_gap_exist", "genuinely_open")
+    assert result["ok"] is True
 
 
 def _base_fields(**overrides):
