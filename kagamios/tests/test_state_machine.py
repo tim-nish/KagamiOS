@@ -88,10 +88,79 @@ def test_backward_transition_with_a_cause_succeeds_and_logs_it(tmp_path):
     assert backward_event["cause"] == "reading reframed the intuition"
 
 
+def _advance_to(run_dir, target_state):
+    """Nominal forward progression frame -> ... -> target_state, setting
+    depth budgets before Deepen since entering it requires them (FR-45)."""
+    for state in ("frame", "map", "deepen", "synthesize", "locate", "propose"):
+        if state == "deepen":
+            set_depth_budgets(run_dir, ["cluster-1"], papers_per_cluster=5, time_horizon="1 week")
+        enter_state(run_dir, state)
+        if state == target_state:
+            return
+
+
+@pytest.mark.parametrize(
+    "from_state,to_state",
+    [
+        ("deepen", "frame"),
+        ("synthesize", "map"),
+        ("locate", "deepen"),
+        ("locate", "map"),
+    ],
+)
+def test_each_defined_backward_transition_is_accepted_with_cause_and_logged(tmp_path, from_state, to_state):
+    run_dir = _open(tmp_path, run_id=f"run-{from_state}-{to_state}")
+    _advance_to(run_dir, from_state)
+
+    result = enter_state(run_dir, to_state, cause="new evidence contradicts the current framing")
+    assert result == {"ok": True, "state": to_state, "violation": None}
+    assert get_state_cache(run_dir)["current_state"] == to_state
+
+    backward_event = [
+        e for e in _events(run_dir) if e.get("kind") == "entered" and e.get("state") == to_state
+    ][-1]
+    assert backward_event["family"] == "state_transition"
+    assert backward_event["cause"] == "new evidence contradicts the current framing"
+
+
+@pytest.mark.parametrize(
+    "from_state,to_state",
+    [
+        ("deepen", "map"),  # backward, but not a defined transition
+        ("synthesize", "frame"),
+        ("locate", "synthesize"),
+    ],
+)
+def test_an_arbitrary_backward_jump_not_in_the_defined_set_is_refused(tmp_path, from_state, to_state):
+    run_dir = _open(tmp_path, run_id=f"run-arbitrary-{from_state}-{to_state}")
+    _advance_to(run_dir, from_state)
+
+    with pytest.raises(StateMachineError):
+        enter_state(run_dir, to_state, cause="trying anyway")
+
+
+def test_an_arbitrary_backward_jump_is_refused_even_with_a_waiver(tmp_path):
+    run_dir = _open(tmp_path, run_id="run-arbitrary-waiver")
+    _advance_to(run_dir, "deepen")
+
+    with pytest.raises(StateMachineError):
+        enter_state(run_dir, "map", waiver="I really want to skip back")
+
+    assert get_state_cache(run_dir)["current_state"] == "deepen"
+
+
 def test_dissolved_is_reachable_from_any_state_without_a_waiver(tmp_path):
     run_dir = _open(tmp_path)
     enter_state(run_dir, "frame")
     result = enter_state(run_dir, "dissolved")
+    assert result["violation"] is None
+
+
+def test_dormant_is_reachable_from_any_state_without_a_waiver(tmp_path):
+    run_dir = _open(tmp_path)
+    enter_state(run_dir, "frame")
+    enter_state(run_dir, "map")
+    result = enter_state(run_dir, "dormant")
     assert result["violation"] is None
 
 

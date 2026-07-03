@@ -198,6 +198,52 @@ def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsy
     assert result["violation"] is not None
 
 
+def test_state_enter_backward_transition_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-cli-backward"])
+    capsys.readouterr()
+
+    main(["state", "enter", "--run-id", "run-cli-backward", "--state", "frame"])
+    capsys.readouterr()
+    main(["state", "enter", "--run-id", "run-cli-backward", "--state", "map"])
+    capsys.readouterr()
+    main(
+        ["budgets", "set", "--run-id", "run-cli-backward", "--clusters", json.dumps(["cluster-1"]),
+         "--papers-per-cluster", "5", "--time-horizon", "1 week"]
+    )
+    capsys.readouterr()
+    main(["state", "enter", "--run-id", "run-cli-backward", "--state", "deepen"])
+    capsys.readouterr()
+
+    # deepen -> frame is a registered backward transition (FR-1): refused without a cause...
+    exit_code = main(["state", "enter", "--run-id", "run-cli-backward", "--state", "frame"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+    # ...accepted and logged once a cause is supplied.
+    exit_code = main(
+        ["state", "enter", "--run-id", "run-cli-backward", "--state", "frame",
+         "--cause", "reading reframed the intuition"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["violation"] is None
+
+    # deepen -> map is backward but not a defined transition: refused outright, cause or not.
+    main(["state", "enter", "--run-id", "run-cli-backward", "--state", "map"])
+    capsys.readouterr()
+    main(["state", "enter", "--run-id", "run-cli-backward", "--state", "deepen"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["state", "enter", "--run-id", "run-cli-backward", "--state", "map", "--cause", "trying anyway"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+
 def test_deepen_claim_and_repair_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact, mark_dependents_stale, pin_dependency
 

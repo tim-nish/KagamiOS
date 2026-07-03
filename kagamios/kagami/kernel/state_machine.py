@@ -89,6 +89,14 @@ def enter_state(
                         f"backward transition '{current}' -> '{state}' requires a one-line "
                         "'cause' annotation before it is accepted (FR-1)"
                     )
+            elif current in states and state in states and states.index(state) < idx:
+                # FR-1: only the specific defined backward transitions are
+                # supported — an arbitrary backward jump is refused outright,
+                # never merely flagged, and no waiver can override it (that
+                # escape hatch is FR-2's, reserved for forward skips).
+                raise StateMachineError(
+                    f"'{current}' -> '{state}' is not a defined backward transition (FR-1)"
+                )
             else:
                 violation = f"entered '{state}' from '{current}', skipping intermediate state(s)"
 
