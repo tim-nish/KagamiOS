@@ -10,6 +10,7 @@ from kagami.store.artifact import (
     create_artifact,
     mark_dependents_stale,
     pin_dependency,
+    review_artifact,
 )
 from kagami.store.markdown_doc import parse_document
 from kagami.store.read import read_artifact
@@ -64,6 +65,7 @@ def test_every_epic_1_operation_logs_a_correctly_tagged_event(tmp_path, monkeypa
     scan(run_dir, "field-map", dep["id"])  # human_edit
     attempt_ai_write(run_dir, "field-map", dep["id"], "alternative_cut", "ai overwrite attempt")  # quarantined
 
+    review_artifact(run_dir, "gap-register", consumer["id"])
     accept_artifact(run_dir, "gap-register", consumer["id"], "\n".join(f"l{i}" for i in range(6)))
 
     # human_edit already covered by scan() above.
@@ -111,9 +113,15 @@ def test_every_epic_1_operation_logs_a_correctly_tagged_event(tmp_path, monkeypa
         kinds_by_family.setdefault(event["family"], set()).add(event.get("kind"))
 
     assert kinds_by_family["state_transition"] == {"run_opened"}
-    assert {"created", "section_claimed", "ai_write", "proposed_diff_quarantined", "accepted", "staled"} <= (
-        kinds_by_family["artifact_event"]
-    )
+    assert {
+        "created",
+        "section_claimed",
+        "ai_write",
+        "proposed_diff_quarantined",
+        "reviewed",
+        "accepted",
+        "staled",
+    } <= kinds_by_family["artifact_event"]
     assert kinds_by_family["human_edit"] == {"scan_detected_change"}
     assert {
         "asked",

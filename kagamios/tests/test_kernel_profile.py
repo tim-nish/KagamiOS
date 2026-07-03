@@ -1,5 +1,5 @@
 from kagami.kernel.profile import validate_minimal_profile
-from kagami.store.artifact import accept_artifact, create_artifact
+from kagami.store.artifact import accept_artifact, create_artifact, review_artifact
 
 
 def _six_line_summary():
@@ -21,6 +21,7 @@ def test_accepted_artifact_with_all_minimal_fields_populated_passes(tmp_path):
         },
         sections={"intuition_restated": "x", "unprimed_hunch": "my hunch"},
     )
+    review_artifact(tmp_path, "inquiry-frame", result["id"])
     accept_artifact(tmp_path, "inquiry-frame", result["id"], _six_line_summary())
 
     outcome = validate_minimal_profile(tmp_path)
@@ -44,6 +45,7 @@ def test_full_profile_field_being_empty_never_fails_validation(tmp_path):
         },
         sections={"intuition_restated": "x", "unprimed_hunch": "my hunch"},
     )
+    review_artifact(tmp_path, "inquiry-frame", result["id"])
     accept_artifact(tmp_path, "inquiry-frame", result["id"], _six_line_summary())
 
     outcome = validate_minimal_profile(tmp_path)
@@ -65,6 +67,7 @@ def test_empty_dependency_lists_are_a_legitimate_minimal_state_not_a_violation(t
         },
         sections={"intuition_restated": "x", "unprimed_hunch": "my hunch"},
     )
+    review_artifact(tmp_path, "inquiry-frame", result["id"])
     accept_artifact(tmp_path, "inquiry-frame", result["id"], _six_line_summary())
 
     outcome = validate_minimal_profile(tmp_path)
@@ -86,6 +89,7 @@ def test_accepted_artifact_missing_a_minimal_text_field_fails_validation(tmp_pat
         },
         sections={"intuition_restated": "x", "unprimed_hunch": ""},  # profile: minimal — required
     )
+    review_artifact(tmp_path, "inquiry-frame", result["id"])
     accept_artifact(tmp_path, "inquiry-frame", result["id"], _six_line_summary())
 
     outcome = validate_minimal_profile(tmp_path)

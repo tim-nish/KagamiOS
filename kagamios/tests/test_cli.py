@@ -105,6 +105,14 @@ def test_accept_and_read_round_trip_through_cli(tmp_path, monkeypatch, capsys):
         sections={"notes": "background"},
     )
 
+    exit_code = main(
+        ["review", "--run-id", "run-accept-test", "--type", "researcher-profile", "--art-id", result["id"]]
+    )
+    reviewed = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert reviewed["ok"] is True
+    assert reviewed["version"] == 2
+
     summary = "\n".join(f"line {i}" for i in range(6))
     exit_code = main(
         ["accept", "--run-id", "run-accept-test", "--type", "researcher-profile", "--art-id", result["id"], "--summary", summary]
@@ -112,7 +120,7 @@ def test_accept_and_read_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     accepted = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert accepted["ok"] is True
-    assert accepted["version"] == 2
+    assert accepted["version"] == 3
 
     exit_code = main(
         ["read", "--run-id", "run-accept-test", "--state", "frame", "--type", "researcher-profile", "--art-id", result["id"], "--resolution", "summary"]
@@ -132,6 +140,62 @@ def test_accept_and_read_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     metrics_out = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert metrics_out == {"ok": True, "full_pull_after_summary_count": 0}
+
+
+def test_entry_start_state_enter_frame_complete_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-cli-frame"])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "entry", "start",
+            "--run-id", "run-cli-frame",
+            "--entry-mode", "intuition-first",
+            "--raw-capture", "signatures might be useful building blocks",
+        ]
+    )
+    entry_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert entry_out["ok"] is True
+
+    fields = json.dumps(
+        {
+            "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
+            "summary": "", "in_scope_readings": ["ppr-1"], "exclusions": [], "hard_constraints": [],
+        }
+    )
+    sections = json.dumps({"intuition_restated": "x", "unprimed_hunch": "y"})
+    exit_code = main(
+        [
+            "frame", "complete",
+            "--run-id", "run-cli-frame",
+            "--unprimed-answer", "my hunch",
+            "--scope-answer", "1 in scope",
+            "--fields", fields,
+            "--sections", sections,
+            "--summary", "\n".join(f"line {i}" for i in range(6)),
+        ]
+    )
+    frame_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert frame_out["ok"] is True
+
+    exit_code = main(["state", "enter", "--run-id", "run-cli-frame", "--state", "map"])
+    state_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert state_out["violation"] is None
+
+
+def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-cli-skip"])
+    capsys.readouterr()
+
+    exit_code = main(["state", "enter", "--run-id", "run-cli-skip", "--state", "map"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["violation"] is not None
 
 
 def test_ask_emit_then_answer_then_revise_round_trip_through_cli(tmp_path, monkeypatch, capsys):

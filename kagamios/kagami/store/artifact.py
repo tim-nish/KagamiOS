@@ -300,6 +300,45 @@ def scan(run_dir: Path, type_slug: str, art_id: str) -> dict:
         }
 
 
+def review_artifact(run_dir: Path, type_slug: str, art_id: str) -> dict:
+    """FR-10: draft -> reviewed, the step before the human accept gate.
+
+    `accept_artifact` refuses to run until an artifact has passed through
+    here — an AI-authored draft is never treated as `current` (accepted)
+    without this intermediate human checkpoint.
+    """
+    art_dir = _artifact_dir(run_dir, type_slug, art_id)
+    meta_path = art_dir / "meta.yaml"
+
+    with acquire_run_lock(run_dir / ".lock"):
+        meta = _read_meta(meta_path)
+        if meta["status"] != "draft":
+            raise ArtifactError(
+                f"cannot review artifact {art_id} in status '{meta['status']}'; expected 'draft' (FR-10)"
+            )
+        frontmatter, sections = parse_document((art_dir / "current.md").read_text())
+
+        frontmatter["status"] = "reviewed"
+        new_version = meta["current_version"] + 1
+        frontmatter["version"] = new_version
+        frontmatter["updated"] = utc_now_iso()
+        new_text = render_document(frontmatter, sections)
+
+        atomic_write(art_dir / f"v{new_version}.md", new_text)
+        atomic_write(art_dir / "current.md", new_text)
+        meta["current_version"] = new_version
+        meta["status"] = "reviewed"
+        meta["content_hash"] = _content_hash(new_text)
+        _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "artifact_event",
+            {"kind": "reviewed", "artifact_type": type_slug, "artifact_id": art_id, "version": new_version},
+        )
+
+    return {"ok": True, "version": new_version}
+
+
 def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) -> dict:
     """FR-33: the 5-10 line summary is regenerated only at acceptance, as part
     of that version — `kagami accept` is the sole entrypoint that writes it."""
@@ -314,6 +353,11 @@ def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) ->
 
     with acquire_run_lock(run_dir / ".lock"):
         meta = _read_meta(meta_path)
+        if meta["status"] != "reviewed":
+            raise ArtifactError(
+                f"cannot accept artifact {art_id} in status '{meta['status']}'; "
+                "expected 'reviewed' (FR-10: draft -> reviewed -> accepted)"
+            )
         frontmatter, sections = parse_document((art_dir / "current.md").read_text())
 
         frontmatter["summary"] = summary

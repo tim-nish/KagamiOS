@@ -13,6 +13,7 @@ from kagami.store.artifact import (
     missing_required_metadata_fields,
     pin_dependency,
     read_version,
+    review_artifact,
     scan,
     validate_can_accept,
     attempt_ai_write,
@@ -245,17 +246,44 @@ def test_mark_dependents_stale_ignores_artifacts_already_current(tmp_path):
     assert unrelated["id"] not in staled
 
 
-def test_accept_artifact_stores_summary_in_the_new_version_and_flips_status(tmp_path):
-    result = create_artifact(
-        tmp_path, "gap-register", _base_fields(summary=""), sections={"statement": "x"}
-    )
-    summary = "\n".join(f"line {i}" for i in range(6))
+def test_review_artifact_flips_status_and_bumps_version(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
 
-    outcome = accept_artifact(tmp_path, "gap-register", result["id"], summary)
+    outcome = review_artifact(tmp_path, "gap-register", result["id"])
     assert outcome["ok"] is True
     assert outcome["version"] == 2
 
     frontmatter, _ = read_version(tmp_path, "gap-register", result["id"], 2)
+    assert frontmatter["status"] == "reviewed"
+
+
+def test_review_artifact_refuses_non_draft_status(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+    review_artifact(tmp_path, "gap-register", result["id"])
+
+    with pytest.raises(ArtifactError):
+        review_artifact(tmp_path, "gap-register", result["id"])
+
+
+def test_accept_artifact_refuses_a_draft_that_was_never_reviewed(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+
+    with pytest.raises(ArtifactError):
+        accept_artifact(tmp_path, "gap-register", result["id"], "\n".join(f"l{i}" for i in range(6)))
+
+
+def test_accept_artifact_stores_summary_in_the_new_version_and_flips_status(tmp_path):
+    result = create_artifact(
+        tmp_path, "gap-register", _base_fields(summary=""), sections={"statement": "x"}
+    )
+    review_artifact(tmp_path, "gap-register", result["id"])
+    summary = "\n".join(f"line {i}" for i in range(6))
+
+    outcome = accept_artifact(tmp_path, "gap-register", result["id"], summary)
+    assert outcome["ok"] is True
+    assert outcome["version"] == 3
+
+    frontmatter, _ = read_version(tmp_path, "gap-register", result["id"], 3)
     assert frontmatter["summary"] == summary
     assert frontmatter["status"] == "accepted"
 
@@ -265,6 +293,7 @@ def test_accept_artifact_stores_summary_in_the_new_version_and_flips_status(tmp_
 
 def test_accept_artifact_rejects_summary_outside_five_to_ten_lines(tmp_path):
     result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+    review_artifact(tmp_path, "gap-register", result["id"])
 
     with pytest.raises(ArtifactError):
         accept_artifact(tmp_path, "gap-register", result["id"], "only one line")

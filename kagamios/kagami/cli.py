@@ -2,12 +2,15 @@ import argparse
 import json
 import sys
 
+from kagami.kernel.entry import EntryError, start_run_from_entry
+from kagami.kernel.frame import complete_frame
 from kagami.kernel.metrics import count_full_pull_after_summary
 from kagami.kernel.profile import validate_minimal_profile
+from kagami.kernel.state_machine import StateMachineError, enter_state
 from kagami.paths import resolve_output_root
 from kagami.schema_version import SchemaVersionError
 from kagami.store import ledger
-from kagami.store.artifact import ArtifactError, accept_artifact, count_provisional, scan
+from kagami.store.artifact import ArtifactError, accept_artifact, count_provisional, review_artifact, scan
 from kagami.store.ledger import LedgerError
 from kagami.store.read import ConsumptionError, read_artifact
 from kagami.store.run import open_run
@@ -42,6 +45,42 @@ def _cmd_accept(args: argparse.Namespace) -> dict:
     try:
         return accept_artifact(run_dir, args.type, args.art_id, args.summary)
     except (ArtifactError, FileNotFoundError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_review(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return review_artifact(run_dir, args.type, args.art_id)
+    except (ArtifactError, FileNotFoundError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_state_enter(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return enter_state(run_dir, args.state, waiver=args.waiver, cause=args.cause)
+    except StateMachineError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_entry_start(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return start_run_from_entry(run_dir, args.entry_mode, args.raw_capture)
+    except EntryError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_frame_complete(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    fields = json.loads(args.fields_json)
+    sections = json.loads(args.sections_json)
+    try:
+        return complete_frame(
+            run_dir, args.unprimed_answer, args.scope_answer, fields, sections, args.summary
+        )
+    except (LedgerError, ArtifactError) as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -109,12 +148,49 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument("--art-id", dest="art_id", required=True)
     scan_parser.set_defaults(func=_cmd_scan)
 
+    review_parser = subparsers.add_parser("review")
+    review_parser.add_argument("--run-id", dest="run_id", required=True)
+    review_parser.add_argument("--type", dest="type", required=True)
+    review_parser.add_argument("--art-id", dest="art_id", required=True)
+    review_parser.set_defaults(func=_cmd_review)
+
     accept_parser = subparsers.add_parser("accept")
     accept_parser.add_argument("--run-id", dest="run_id", required=True)
     accept_parser.add_argument("--type", dest="type", required=True)
     accept_parser.add_argument("--art-id", dest="art_id", required=True)
     accept_parser.add_argument("--summary", dest="summary", required=True)
     accept_parser.set_defaults(func=_cmd_accept)
+
+    state_parser = subparsers.add_parser("state")
+    state_subparsers = state_parser.add_subparsers(dest="state_command", required=True)
+
+    state_enter_parser = state_subparsers.add_parser("enter")
+    state_enter_parser.add_argument("--run-id", dest="run_id", required=True)
+    state_enter_parser.add_argument("--state", dest="state", required=True)
+    state_enter_parser.add_argument("--waiver", dest="waiver", default=None)
+    state_enter_parser.add_argument("--cause", dest="cause", default=None)
+    state_enter_parser.set_defaults(func=_cmd_state_enter)
+
+    entry_parser = subparsers.add_parser("entry")
+    entry_subparsers = entry_parser.add_subparsers(dest="entry_command", required=True)
+
+    entry_start_parser = entry_subparsers.add_parser("start")
+    entry_start_parser.add_argument("--run-id", dest="run_id", required=True)
+    entry_start_parser.add_argument("--entry-mode", dest="entry_mode", required=True)
+    entry_start_parser.add_argument("--raw-capture", dest="raw_capture", required=True)
+    entry_start_parser.set_defaults(func=_cmd_entry_start)
+
+    frame_parser = subparsers.add_parser("frame")
+    frame_subparsers = frame_parser.add_subparsers(dest="frame_command", required=True)
+
+    frame_complete_parser = frame_subparsers.add_parser("complete")
+    frame_complete_parser.add_argument("--run-id", dest="run_id", required=True)
+    frame_complete_parser.add_argument("--unprimed-answer", dest="unprimed_answer", required=True)
+    frame_complete_parser.add_argument("--scope-answer", dest="scope_answer", required=True)
+    frame_complete_parser.add_argument("--fields", dest="fields_json", required=True)
+    frame_complete_parser.add_argument("--sections", dest="sections_json", required=True)
+    frame_complete_parser.add_argument("--summary", dest="summary", required=True)
+    frame_complete_parser.set_defaults(func=_cmd_frame_complete)
 
     read_parser = subparsers.add_parser("read")
     read_parser.add_argument("--run-id", dest="run_id", required=True)
