@@ -841,6 +841,27 @@ def test_metrics_charter_audit_detects_a_real_historian_violation_through_cli(tm
     assert len(violated_result["violations"]["historian_spoke_outside_evolution"]) == 1
 
 
+def test_metrics_shared_payload_refuses_by_default_then_succeeds_once_opted_in_through_cli(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-shared-payload-test"])
+    capsys.readouterr()
+
+    exit_code = main(["metrics", "shared-payload", "--run-id", "run-shared-payload-test"])
+    refused = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert refused["ok"] is False
+
+    (tmp_path / "config.yaml").write_text("sharing_enabled: true\n")
+
+    exit_code = main(["metrics", "shared-payload", "--run-id", "run-shared-payload-test"])
+    allowed = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert allowed["ok"] is True
+    assert "event_class_counts" in allowed
+
+
 def test_gate_propose_and_approve_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 
