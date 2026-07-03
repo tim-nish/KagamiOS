@@ -8,7 +8,7 @@ from kagami.kernel.skeptic import (
     record_skeptic_critique,
     skeptic_write,
 )
-from kagami.store.artifact import create_artifact, pin_dependency, read_current
+from kagami.store.artifact import accept_artifact, create_artifact, pin_dependency, read_current, review_artifact
 
 
 def _base_fields(**overrides):
@@ -22,7 +22,16 @@ def _base_fields(**overrides):
     return fields
 
 
+def _accept_a_gap_register(run_dir):
+    """FR-46/AD-9: the candidate-direction generation window only opens
+    once a Gap Register in the run has reached accepted."""
+    gap = create_artifact(run_dir, "gap-register", _base_fields(), sections={"statement": "x"})
+    review_artifact(run_dir, "gap-register", gap["id"])
+    accept_artifact(run_dir, "gap-register", gap["id"], "\n".join(f"line {i}" for i in range(6)))
+
+
 def _candidate(run_dir, **overrides):
+    _accept_a_gap_register(run_dir)
     return create_artifact(
         run_dir,
         "candidate-direction",

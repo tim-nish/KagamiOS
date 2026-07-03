@@ -264,13 +264,20 @@ def test_deepen_claim_and_repair_round_trip_through_cli(tmp_path, monkeypatch, c
 
 
 def test_skeptic_context_write_and_critique_round_trip_through_cli(tmp_path, monkeypatch, capsys):
-    from kagami.store.artifact import create_artifact
+    from kagami.store.artifact import accept_artifact, create_artifact, review_artifact
 
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-skeptic-test"])
     capsys.readouterr()
 
     run_dir = tmp_path / "_kagami-output" / "runs" / "run-skeptic-test"
+    base_fields = {
+        "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": "",
+    }
+    gap = create_artifact(run_dir, "gap-register", base_fields, sections={"statement": "x"})
+    review_artifact(run_dir, "gap-register", gap["id"])
+    accept_artifact(run_dir, "gap-register", gap["id"], "\n".join(f"line {i}" for i in range(6)))
+
     candidate = create_artifact(
         run_dir,
         "candidate-direction",
@@ -757,3 +764,44 @@ def test_locate_write_mark_meaningful_and_validate_exit_round_trip_through_cli(t
     result = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert result == {"ok": True, "violations": []}
+
+
+def test_locate_check_terminal_flips_true_only_after_gap_register_accepted_through_cli(
+    tmp_path, monkeypatch, capsys
+):
+    from kagami.store.artifact import accept_artifact, create_artifact, review_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-terminal-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-terminal-test"
+    base_fields = {
+        "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": "",
+    }
+
+    exit_code = main(["locate", "check-terminal", "--run-id", "run-terminal-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "terminal_reached": False}
+
+    gap = create_artifact(run_dir, "gap-register", base_fields, sections={"statement": "a real gap"})
+
+    premature = create_artifact(
+        run_dir, "candidate-direction", base_fields, sections={"direction": "too soon"}
+    )
+    assert premature["ok"] is False
+    assert not (run_dir / "artifacts" / "candidate-direction").exists()
+
+    review_artifact(run_dir, "gap-register", gap["id"])
+    accept_artifact(run_dir, "gap-register", gap["id"], "\n".join(f"line {i}" for i in range(6)))
+
+    exit_code = main(["locate", "check-terminal", "--run-id", "run-terminal-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "terminal_reached": True}
+
+    legitimate = create_artifact(
+        run_dir, "candidate-direction", base_fields, sections={"direction": "a real candidate"}
+    )
+    assert legitimate["ok"] is True

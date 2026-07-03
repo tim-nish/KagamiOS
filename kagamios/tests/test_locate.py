@@ -4,6 +4,7 @@ import pytest
 
 from kagami.kernel.locate import (
     LocateError,
+    check_mvp_terminal,
     locate_write,
     mark_gap_meaningful,
     record_micro_probe_evidence,
@@ -157,3 +158,23 @@ def test_validate_locate_exit_passes_once_every_minimal_profile_section_is_popul
 
     result = validate_locate_exit(tmp_path, gap["id"])
     assert result == {"ok": True, "violations": []}
+
+
+def test_check_mvp_terminal_is_not_reached_before_any_gap_register_is_accepted(tmp_path):
+    _create_gap_register(tmp_path, statement="a real gap")
+
+    assert check_mvp_terminal(tmp_path) == {"ok": True, "terminal_reached": False}
+
+
+def test_check_mvp_terminal_is_reached_once_a_gap_register_is_accepted(tmp_path):
+    gap = _create_gap_register(
+        tmp_path,
+        statement="a real gap",
+        evidence_of_absence="searched, found nothing",
+        why_does_this_gap_exist="genuinely_open",
+    )
+    mark_gap_meaningful(tmp_path, gap["id"], "meaningful")
+    review_artifact(tmp_path, "gap-register", gap["id"])
+    accept_artifact(tmp_path, "gap-register", gap["id"], "\n".join(f"line {i}" for i in range(6)))
+
+    assert check_mvp_terminal(tmp_path) == {"ok": True, "terminal_reached": True}

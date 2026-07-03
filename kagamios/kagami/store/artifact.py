@@ -29,6 +29,9 @@ HUMAN_TOUCHED_AUTHOR_CLASSES = ("human", "ai-drafted-human-confirmed")
 SUMMARY_MIN_LINES = 5
 SUMMARY_MAX_LINES = 10
 
+GAP_REGISTER_TYPE_SLUG = "gap-register"
+CANDIDATE_DIRECTION_GENERATION_WINDOW = "propose"
+
 
 class ArtifactError(Exception):
     pass
@@ -70,6 +73,55 @@ def _write_meta(meta_path: Path, meta: dict) -> None:
     atomic_write(meta_path, yaml.safe_dump(meta, sort_keys=False))
 
 
+def is_gap_register_accepted(run_dir: Path) -> bool:
+    """AD-9: the Candidate-Direction generation window keys off run-level
+    Gap Register acceptance rather than per-cluster derived state (unlike
+    every other window) — any Gap Register in the run reaching `accepted`
+    opens it. Per PRD §7.1 this same fact is MVP's terminal deliverable,
+    since Decided is unreachable while Propose/Decide don't exist yet.
+    """
+    gap_register_root = run_dir / "artifacts" / GAP_REGISTER_TYPE_SLUG
+    if not gap_register_root.exists():
+        return False
+    return any(
+        _read_meta(meta_path).get("status") == "accepted"
+        for meta_path in gap_register_root.glob("*/meta.yaml")
+    )
+
+
+def _quarantine_premature_idea(run_dir: Path, type_slug: str, fields: dict, sections: dict) -> dict:
+    """FR-46/AD-9: content generated outside its open generation window is
+    refused, not merely discouraged — and never discarded or leaked into a
+    legitimate artifact. It is quarantined to `premature_ideas/` instead,
+    carrying the content that would have been written."""
+    frontmatter = {"type": type_slug, "created": utc_now_iso(), **fields}
+    section_objs = [Section(mint_id("sec-"), title, body) for title, body in sections.items()]
+    doc_text = render_document(frontmatter, section_objs)
+
+    quarantine_dir = run_dir / "premature_ideas"
+    quarantine_path = quarantine_dir / f"{mint_id('premature-')}.md"
+    reason = (
+        f"'{type_slug}' generation window is not open: no Gap Register has reached "
+        "accepted in this run yet (FR-46, AD-9)"
+    )
+
+    with acquire_run_lock(run_dir / ".lock"):
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write(quarantine_path, doc_text)
+        append_event(
+            run_dir,
+            "artifact_event",
+            {
+                "kind": "premature_idea_quarantined",
+                "artifact_type": type_slug,
+                "quarantined_as": str(quarantine_path),
+                "reason": reason,
+            },
+        )
+
+    return {"ok": False, "quarantined_as": str(quarantine_path), "reason": reason}
+
+
 def create_artifact(
     run_dir: Path,
     type_slug: str,
@@ -79,7 +131,12 @@ def create_artifact(
     registry=None,
 ) -> dict:
     registry = registry or load_registry()
-    registry.get_artifact_schema(type_slug)
+    schema = registry.get_artifact_schema(type_slug)
+
+    if schema.generation_window == CANDIDATE_DIRECTION_GENERATION_WINDOW and not is_gap_register_accepted(
+        run_dir
+    ):
+        return _quarantine_premature_idea(run_dir, type_slug, fields, sections)
 
     art_id = art_id or mint_id("art-")
     now = utc_now_iso()
@@ -464,6 +521,15 @@ def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) ->
             "artifact_event",
             {"kind": "accepted", "artifact_type": type_slug, "artifact_id": art_id, "version": new_version},
         )
+        if type_slug == GAP_REGISTER_TYPE_SLUG:
+            # PRD §7.1: an accepted Gap Register is MVP's terminal deliverable —
+            # Decided is unreachable by construction since Propose/Decide don't
+            # exist yet (FR-46).
+            append_event(
+                run_dir,
+                "terminal_event",
+                {"kind": "mvp_terminal_reached", "terminal": "gap-register-accepted", "artifact_id": art_id},
+            )
 
     return {"ok": True, "version": new_version}
 

@@ -307,3 +307,69 @@ def _load_meta(art_dir):
     import yaml
 
     return yaml.safe_load((art_dir / "meta.yaml").read_text())
+
+
+def _accept_a_gap_register(run_dir):
+    gap = create_artifact(run_dir, "gap-register", _base_fields(), sections={"statement": "x"})
+    review_artifact(run_dir, "gap-register", gap["id"])
+    return accept_artifact(run_dir, "gap-register", gap["id"], "\n".join(f"line {i}" for i in range(6)))
+
+
+def test_create_artifact_refuses_candidate_direction_before_gap_register_accepted(tmp_path):
+    outcome = create_artifact(
+        tmp_path, "candidate-direction", _base_fields(), sections={"direction": "a premature pitch"}
+    )
+
+    assert outcome["ok"] is False
+    assert not (tmp_path / "artifacts" / "candidate-direction").exists()
+
+    quarantine_path = Path(outcome["quarantined_as"])
+    assert quarantine_path.parent == tmp_path / "premature_ideas"
+    assert quarantine_path.is_file()
+    assert "a premature pitch" in quarantine_path.read_text()
+
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    quarantined = [e for e in events if e["kind"] == "premature_idea_quarantined"]
+    assert len(quarantined) == 1
+    assert quarantined[0]["family"] == "artifact_event"
+    assert quarantined[0]["artifact_type"] == "candidate-direction"
+
+
+def test_create_artifact_succeeds_for_candidate_direction_after_gap_register_accepted(tmp_path):
+    _accept_a_gap_register(tmp_path)
+
+    outcome = create_artifact(
+        tmp_path, "candidate-direction", _base_fields(), sections={"direction": "a real candidate"}
+    )
+
+    assert outcome["ok"] is True
+    art_dir = tmp_path / "artifacts" / "candidate-direction" / outcome["id"]
+    assert art_dir.is_dir()
+
+
+def test_candidate_direction_created_timestamp_never_precedes_gap_register_acceptance(tmp_path):
+    accepted = _accept_a_gap_register(tmp_path)
+    gap_id = _first_gap_register_id(tmp_path)
+    accepted_frontmatter, _ = read_version(tmp_path, "gap-register", gap_id, accepted["version"])
+
+    outcome = create_artifact(
+        tmp_path, "candidate-direction", _base_fields(), sections={"direction": "a real candidate"}
+    )
+
+    candidate_frontmatter, _ = read_version(tmp_path, "candidate-direction", outcome["id"], 1)
+    assert candidate_frontmatter["created"] >= accepted_frontmatter["updated"]
+
+
+def _first_gap_register_id(run_dir):
+    return next((run_dir / "artifacts" / "gap-register").iterdir()).name
+
+
+def test_accepting_a_gap_register_emits_the_mvp_terminal_event(tmp_path):
+    _accept_a_gap_register(tmp_path)
+    gap_id = _first_gap_register_id(tmp_path)
+
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    terminal_events = [e for e in events if e["family"] == "terminal_event"]
+    assert len(terminal_events) == 1
+    assert terminal_events[0]["kind"] == "mvp_terminal_reached"
+    assert terminal_events[0]["artifact_id"] == gap_id

@@ -26,6 +26,7 @@ from kagami.kernel.frame import complete_frame
 from kagami.kernel.historian import HistorianError, historian_write
 from kagami.kernel.locate import (
     LocateError,
+    check_mvp_terminal,
     locate_write,
     mark_gap_meaningful,
     record_micro_probe_evidence,
@@ -284,6 +285,11 @@ def _cmd_locate_validate_exit(args: argparse.Namespace) -> dict:
     return validate_locate_exit(run_dir, args.art_id)
 
 
+def _cmd_locate_check_terminal(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return check_mvp_terminal(run_dir)
+
+
 def _cmd_state_derive(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return compute_run_nominal_state(run_dir)
@@ -529,6 +535,10 @@ def build_parser() -> argparse.ArgumentParser:
     locate_validate_exit_parser.add_argument("--run-id", dest="run_id", required=True)
     locate_validate_exit_parser.add_argument("--art-id", dest="art_id", required=True)
     locate_validate_exit_parser.set_defaults(func=_cmd_locate_validate_exit)
+
+    locate_check_terminal_parser = locate_subparsers.add_parser("check-terminal")
+    locate_check_terminal_parser.add_argument("--run-id", dest="run_id", required=True)
+    locate_check_terminal_parser.set_defaults(func=_cmd_locate_check_terminal)
 
     cartographer_parser = subparsers.add_parser("cartographer")
     cartographer_subparsers = cartographer_parser.add_subparsers(

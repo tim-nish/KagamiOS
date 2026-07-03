@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from kagami.registry import load_registry
-from kagami.store.artifact import attempt_ai_write, human_write_section, read_current
+from kagami.store.artifact import attempt_ai_write, human_write_section, is_gap_register_accepted, read_current
 
 GAP_REGISTER_TYPE = "gap-register"
 WHY_DOES_THIS_GAP_EXIST_FIELD = "why_does_this_gap_exist"
@@ -86,3 +86,12 @@ def validate_locate_exit(run_dir: Path, art_id: str, registry=None) -> dict:
             violations.append(f"gap register {art_id} missing minimal-profile field '{field_name}'")
 
     return {"ok": len(violations) == 0, "violations": violations}
+
+
+def check_mvp_terminal(run_dir: Path) -> dict:
+    """PRD §7.1: an accepted Gap Register is MVP's terminal deliverable.
+    Checkable purely from artifact-store state (G1/FR-36: no runtime
+    behavior may depend on reading the event log back) — Decided remains
+    unreachable by construction since Propose/Decide don't exist yet.
+    """
+    return {"ok": True, "terminal_reached": is_gap_register_accepted(run_dir)}
