@@ -30,6 +30,7 @@ from kagami.kernel.repair import apply_tier2_repair, repair_artifact
 from kagami.kernel.scout import CorpusAccessError, search_corpus
 from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_skeptic_critique, skeptic_write
 from kagami.kernel.state_machine import StateMachineError, enter_state
+from kagami.kernel.synthesize import SynthesizeError, synthesize_write, validate_landscape_synthesis
 from kagami.paths import resolve_output_root
 from kagami.schema_version import SchemaVersionError
 from kagami.store import ledger
@@ -230,6 +231,21 @@ def _cmd_dossier_mark_read(args: argparse.Namespace) -> dict:
 def _cmd_dossier_validate_deepen_exit(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return validate_deepen_exit(run_dir, args.art_id)
+
+
+def _cmd_synthesize_write(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    rows = json.loads(args.rows_json)
+    dossier_ids = json.loads(args.dossier_ids_json)
+    try:
+        return synthesize_write(run_dir, args.art_id, args.field, rows, dossier_ids)
+    except (SynthesizeError, ArtifactError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_synthesize_validate(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return validate_landscape_synthesis(run_dir, args.art_id)
 
 
 def _cmd_state_derive(args: argparse.Namespace) -> dict:
@@ -434,6 +450,22 @@ def build_parser() -> argparse.ArgumentParser:
     dossier_validate_parser.add_argument("--run-id", dest="run_id", required=True)
     dossier_validate_parser.add_argument("--art-id", dest="art_id", required=True)
     dossier_validate_parser.set_defaults(func=_cmd_dossier_validate_deepen_exit)
+
+    synthesize_parser = subparsers.add_parser("synthesize")
+    synthesize_subparsers = synthesize_parser.add_subparsers(dest="synthesize_command", required=True)
+
+    synthesize_write_parser = synthesize_subparsers.add_parser("write")
+    synthesize_write_parser.add_argument("--run-id", dest="run_id", required=True)
+    synthesize_write_parser.add_argument("--art-id", dest="art_id", required=True)
+    synthesize_write_parser.add_argument("--field", dest="field", required=True)
+    synthesize_write_parser.add_argument("--rows", dest="rows_json", required=True)
+    synthesize_write_parser.add_argument("--dossier-ids", dest="dossier_ids_json", required=True)
+    synthesize_write_parser.set_defaults(func=_cmd_synthesize_write)
+
+    synthesize_validate_parser = synthesize_subparsers.add_parser("validate")
+    synthesize_validate_parser.add_argument("--run-id", dest="run_id", required=True)
+    synthesize_validate_parser.add_argument("--art-id", dest="art_id", required=True)
+    synthesize_validate_parser.set_defaults(func=_cmd_synthesize_validate)
 
     cartographer_parser = subparsers.add_parser("cartographer")
     cartographer_subparsers = cartographer_parser.add_subparsers(

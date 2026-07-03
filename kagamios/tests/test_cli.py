@@ -589,6 +589,65 @@ def test_metrics_provisional_count_reports_zero_with_no_provisional_artifacts(tm
     assert result == {"ok": True, "provisional_count": 0}
 
 
+def test_synthesize_write_and_validate_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import accept_artifact, create_artifact, review_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-synthesize-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-synthesize-test"
+    base_fields = {
+        "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": "",
+    }
+    dossier = create_artifact(
+        run_dir, "cluster-dossier", base_fields, sections={"evolution": "founding problem"}
+    )
+    review_artifact(run_dir, "cluster-dossier", dossier["id"])
+    accept_artifact(run_dir, "cluster-dossier", dossier["id"], "\n".join(f"l{i}" for i in range(6)))
+
+    synth = create_artifact(run_dir, "landscape-synthesis", base_fields, sections={})
+
+    rows = [
+        {"claim": "approach X solves problem Y", "status": "solved"},
+        {"claim": "nobody has tried Z", "status": "open"},  # missing absence_evidence
+    ]
+    exit_code = main(
+        ["synthesize", "write", "--run-id", "run-synthesize-test", "--art-id", synth["id"],
+         "--field", "solved_open_table", "--rows", json.dumps(rows),
+         "--dossier-ids", json.dumps([dossier["id"]])]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+    rows[1]["absence_evidence"] = "searched venues A/B 2019-2025, zero hits"
+    exit_code = main(
+        ["synthesize", "write", "--run-id", "run-synthesize-test", "--art-id", synth["id"],
+         "--field", "solved_open_table", "--rows", json.dumps(rows),
+         "--dossier-ids", json.dumps([dossier["id"]])]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+    exit_code = main(
+        ["synthesize", "write", "--run-id", "run-synthesize-test", "--art-id", synth["id"],
+         "--field", "competing_approaches_matrix", "--rows", json.dumps([{"x": "y"}]),
+         "--dossier-ids", json.dumps([dossier["id"]])]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+    exit_code = main(
+        ["synthesize", "validate", "--run-id", "run-synthesize-test", "--art-id", synth["id"]]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "violations": []}
+
+
 def test_schema_version_refusal_exits_nonzero(tmp_path, monkeypatch, capsys):
     import yaml
 
