@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 
 from kagami.events import append_event
+from kagami.kernel.dossier import validate_deepen_exit
 from kagami.registry import load_registry
 from kagami.store.atomic import atomic_write
 from kagami.store.locking import acquire_run_lock
@@ -54,7 +55,10 @@ def _has_accepted_dossier_for_cluster(run_dir: Path, field_map_id: str) -> bool:
         current_path = meta_path.parent / "current.md"
         frontmatter, _ = parse_document(current_path.read_text())
         if any(pin.startswith(pin_prefix) for pin in frontmatter.get("depends_on") or []):
-            return True
+            # FR-28: acceptance alone isn't the Deepen exit criterion — every
+            # representative paper must also carry a human_read mark.
+            if validate_deepen_exit(run_dir, meta["id"])["ok"]:
+                return True
     return False
 
 

@@ -501,6 +501,44 @@ def flag_provisional(run_dir: Path, type_slug: str, art_id: str) -> dict:
     return {"ok": True, "version": new_version}
 
 
+def update_frontmatter_field(
+    run_dir: Path,
+    type_slug: str,
+    art_id: str,
+    field_name: str,
+    updater,
+    event_family: str,
+    event_payload: dict,
+) -> dict:
+    """Generic chokepoint primitive: read-lock-mutate-write a single
+    frontmatter field via `updater(current_value) -> new_value`, bumping the
+    version and logging exactly one event as part of the same locked span.
+    `updater` may raise to refuse the mutation entirely (nothing is written).
+    """
+    art_dir = _artifact_dir(run_dir, type_slug, art_id)
+    meta_path = art_dir / "meta.yaml"
+
+    with acquire_run_lock(run_dir / ".lock"):
+        meta = _read_meta(meta_path)
+        frontmatter, sections = parse_document((art_dir / "current.md").read_text())
+
+        frontmatter[field_name] = updater(frontmatter.get(field_name))
+
+        new_version = meta["current_version"] + 1
+        frontmatter["version"] = new_version
+        frontmatter["updated"] = utc_now_iso()
+        new_text = render_document(frontmatter, sections)
+
+        atomic_write(art_dir / f"v{new_version}.md", new_text)
+        atomic_write(art_dir / "current.md", new_text)
+        meta["current_version"] = new_version
+        meta["content_hash"] = _content_hash(new_text)
+        _write_meta(meta_path, meta)
+        append_event(run_dir, event_family, event_payload)
+
+    return {"ok": True, "version": new_version}
+
+
 def count_provisional(run_dir: Path) -> int:
     """FR-20: the provisional count surfaced at the Decide gate rather than hidden."""
     artifacts_root = run_dir / "artifacts"

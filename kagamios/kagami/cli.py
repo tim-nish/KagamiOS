@@ -19,8 +19,10 @@ from kagami.kernel.derived_state import (
     get_depth_budgets,
     set_depth_budgets,
 )
+from kagami.kernel.dossier import DossierError, mark_representative_paper_read, validate_deepen_exit
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
+from kagami.kernel.historian import HistorianError, historian_write
 from kagami.kernel.metrics import count_full_pull_after_summary
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.scout import CorpusAccessError, search_corpus
@@ -170,6 +172,27 @@ def _cmd_cartographer_create(args: argparse.Namespace) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _cmd_historian_write(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return historian_write(run_dir, args.art_id, args.section, args.body)
+    except (HistorianError, ArtifactError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_dossier_mark_read(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return mark_representative_paper_read(run_dir, args.art_id, args.paper_id, args.reaction)
+    except DossierError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_dossier_validate_deepen_exit(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return validate_deepen_exit(run_dir, args.art_id)
+
+
 def _cmd_state_derive(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return compute_run_nominal_state(run_dir)
@@ -296,6 +319,31 @@ def build_parser() -> argparse.ArgumentParser:
     frame_complete_parser.add_argument("--sections", dest="sections_json", required=True)
     frame_complete_parser.add_argument("--summary", dest="summary", required=True)
     frame_complete_parser.set_defaults(func=_cmd_frame_complete)
+
+    historian_parser = subparsers.add_parser("historian")
+    historian_subparsers = historian_parser.add_subparsers(dest="historian_command", required=True)
+
+    historian_write_parser = historian_subparsers.add_parser("write")
+    historian_write_parser.add_argument("--run-id", dest="run_id", required=True)
+    historian_write_parser.add_argument("--art-id", dest="art_id", required=True)
+    historian_write_parser.add_argument("--section", dest="section", required=True)
+    historian_write_parser.add_argument("--body", dest="body", required=True)
+    historian_write_parser.set_defaults(func=_cmd_historian_write)
+
+    dossier_parser = subparsers.add_parser("dossier")
+    dossier_subparsers = dossier_parser.add_subparsers(dest="dossier_command", required=True)
+
+    dossier_mark_read_parser = dossier_subparsers.add_parser("mark-read")
+    dossier_mark_read_parser.add_argument("--run-id", dest="run_id", required=True)
+    dossier_mark_read_parser.add_argument("--art-id", dest="art_id", required=True)
+    dossier_mark_read_parser.add_argument("--paper-id", dest="paper_id", required=True)
+    dossier_mark_read_parser.add_argument("--reaction", dest="reaction", required=True)
+    dossier_mark_read_parser.set_defaults(func=_cmd_dossier_mark_read)
+
+    dossier_validate_parser = dossier_subparsers.add_parser("validate-deepen-exit")
+    dossier_validate_parser.add_argument("--run-id", dest="run_id", required=True)
+    dossier_validate_parser.add_argument("--art-id", dest="art_id", required=True)
+    dossier_validate_parser.set_defaults(func=_cmd_dossier_validate_deepen_exit)
 
     cartographer_parser = subparsers.add_parser("cartographer")
     cartographer_subparsers = cartographer_parser.add_subparsers(

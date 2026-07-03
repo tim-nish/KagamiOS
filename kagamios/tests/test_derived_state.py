@@ -67,6 +67,30 @@ def test_cluster_with_an_accepted_dossier_is_derived_past_deepen(tmp_path):
     assert compute_cluster_state(run_dir, fm["id"]) == "synthesize"
 
 
+def test_cluster_with_an_accepted_dossier_missing_human_read_stays_in_deepen(tmp_path):
+    """FR-28: acceptance alone isn't the Deepen exit criterion — an unread
+    representative paper keeps the cluster's derived state at 'deepen'."""
+    from kagami.store.artifact import accept_artifact, pin_dependency
+
+    run_dir = _open(tmp_path)
+    fm = _create_field_map(run_dir)
+    review_artifact(run_dir, "field-map", fm["id"])
+
+    dossier = create_artifact(
+        run_dir,
+        "cluster-dossier",
+        _base_fields(
+            depends_on=[pin_dependency(fm["id"], 1)],
+            representative_papers=[{"paper_id": "ppr-1", "human_read": False, "reaction": ""}],
+        ),
+        sections={"evolution": "founding problem etc"},
+    )
+    review_artifact(run_dir, "cluster-dossier", dossier["id"])
+    accept_artifact(run_dir, "cluster-dossier", dossier["id"], "\n".join(f"l{i}" for i in range(6)))
+
+    assert compute_cluster_state(run_dir, fm["id"]) == "deepen"
+
+
 def test_two_clusters_can_be_in_different_states_simultaneously(tmp_path):
     run_dir = _open(tmp_path)
     fm_a = _create_field_map(run_dir, "cluster A")

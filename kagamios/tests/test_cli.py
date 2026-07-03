@@ -198,6 +198,85 @@ def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsy
     assert result["violation"] is not None
 
 
+def test_historian_write_refuses_a_non_evolution_section_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-historian-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-historian-test"
+    dossier = create_artifact(
+        run_dir,
+        "cluster-dossier",
+        {
+            "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
+            "summary": "",
+        },
+        sections={"evolution": "x", "frontier": "y"},
+    )
+
+    exit_code = main(
+        ["historian", "write", "--run-id", "run-historian-test", "--art-id", dossier["id"],
+         "--section", "frontier", "--body", "off-limits content"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+    exit_code = main(
+        ["historian", "write", "--run-id", "run-historian-test", "--art-id", dossier["id"],
+         "--section", "evolution", "--body", "the field began with X"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+
+def test_dossier_mark_read_and_validate_deepen_exit_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import accept_artifact, create_artifact, review_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-dossier-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-dossier-test"
+    dossier = create_artifact(
+        run_dir,
+        "cluster-dossier",
+        {
+            "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
+            "summary": "",
+            "representative_papers": [{"paper_id": "ppr-1", "human_read": False, "reaction": ""}],
+        },
+        sections={"evolution": "founding problem"},
+    )
+    review_artifact(run_dir, "cluster-dossier", dossier["id"])
+    accept_artifact(run_dir, "cluster-dossier", dossier["id"], "\n".join(f"l{i}" for i in range(6)))
+
+    exit_code = main(
+        ["dossier", "validate-deepen-exit", "--run-id", "run-dossier-test", "--art-id", dossier["id"]]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+    exit_code = main(
+        ["dossier", "mark-read", "--run-id", "run-dossier-test", "--art-id", dossier["id"],
+         "--paper-id", "ppr-1", "--reaction", "foundational"]
+    )
+    mark_result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert mark_result["ok"] is True
+
+    exit_code = main(
+        ["dossier", "validate-deepen-exit", "--run-id", "run-dossier-test", "--art-id", dossier["id"]]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+
 def test_budgets_set_get_and_check_exhaustion_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-budgets-test"])
