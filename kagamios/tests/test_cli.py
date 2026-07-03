@@ -198,6 +198,56 @@ def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsy
     assert result["violation"] is not None
 
 
+def test_budgets_set_get_and_check_exhaustion_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-budgets-test"])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "budgets", "set",
+            "--run-id", "run-budgets-test",
+            "--clusters", json.dumps(["cluster-1"]),
+            "--papers-per-cluster", "5",
+            "--time-horizon", "1 week",
+        ]
+    )
+    set_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert set_out["depth_budgets"]["papers_per_cluster"] == 5
+
+    exit_code = main(["budgets", "get", "--run-id", "run-budgets-test"])
+    get_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert get_out["depth_budgets"]["papers_per_cluster"] == 5
+
+    exit_code = main(
+        [
+            "budgets", "check-exhaustion",
+            "--run-id", "run-budgets-test",
+            "--cluster-id", "cluster-1",
+            "--papers-read-count", "5",
+        ]
+    )
+    check_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert check_out["exhausted"] is True
+    assert check_out["newly_asked"] is True
+
+
+def test_state_derive_reports_modal_cluster_state_through_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-derive-test"])
+    capsys.readouterr()
+    main(["state", "enter", "--run-id", "run-derive-test", "--state", "frame"])
+    capsys.readouterr()
+
+    exit_code = main(["state", "derive", "--run-id", "run-derive-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["nominal_state"] == "frame"
+
+
 def test_cartographer_draft_then_create_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-cartographer-test"])

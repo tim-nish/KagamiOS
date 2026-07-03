@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 
 from kagami.events import append_event
+from kagami.kernel.derived_state import DEEPEN_STATE, DepthBudgetError, assert_depth_budgets_set
 from kagami.registry import load_registry
 from kagami.store.atomic import atomic_write
 from kagami.store.locking import acquire_run_lock
@@ -50,6 +51,12 @@ def enter_state(
     states = registry.states()
     if state not in states and state not in TERMINALS_REACHABLE_ANYTIME:
         raise StateMachineError(f"'{state}' is not a valid state")
+
+    if state == DEEPEN_STATE:
+        try:
+            assert_depth_budgets_set(run_dir)
+        except DepthBudgetError as exc:
+            raise StateMachineError(str(exc)) from None
 
     with acquire_run_lock(run_dir / ".lock"):
         manifest = _read_manifest(run_dir)

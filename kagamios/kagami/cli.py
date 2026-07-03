@@ -12,6 +12,13 @@ from kagami.kernel.cartographer import (
     draft_clusterings,
     validate_field_map_draft,
 )
+from kagami.kernel.derived_state import (
+    DepthBudgetError,
+    compute_run_nominal_state,
+    detect_budget_exhaustion,
+    get_depth_budgets,
+    set_depth_budgets,
+)
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.metrics import count_full_pull_after_summary
@@ -163,6 +170,30 @@ def _cmd_cartographer_create(args: argparse.Namespace) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _cmd_state_derive(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return compute_run_nominal_state(run_dir)
+
+
+def _cmd_budgets_set(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    clusters_to_deepen = json.loads(args.clusters_json)
+    return set_depth_budgets(run_dir, clusters_to_deepen, args.papers_per_cluster, args.time_horizon)
+
+
+def _cmd_budgets_get(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return {"ok": True, "depth_budgets": get_depth_budgets(run_dir)}
+
+
+def _cmd_budgets_check_exhaustion(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return detect_budget_exhaustion(run_dir, args.cluster_id, args.papers_read_count)
+    except DepthBudgetError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _cmd_metrics_provisional_count(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return {"ok": True, "provisional_count": count_provisional(run_dir)}
@@ -216,6 +247,34 @@ def build_parser() -> argparse.ArgumentParser:
     state_enter_parser.add_argument("--waiver", dest="waiver", default=None)
     state_enter_parser.add_argument("--cause", dest="cause", default=None)
     state_enter_parser.set_defaults(func=_cmd_state_enter)
+
+    state_derive_parser = state_subparsers.add_parser("derive")
+    state_derive_parser.add_argument("--run-id", dest="run_id", required=True)
+    state_derive_parser.set_defaults(func=_cmd_state_derive)
+
+    budgets_parser = subparsers.add_parser("budgets")
+    budgets_subparsers = budgets_parser.add_subparsers(dest="budgets_command", required=True)
+
+    budgets_set_parser = budgets_subparsers.add_parser("set")
+    budgets_set_parser.add_argument("--run-id", dest="run_id", required=True)
+    budgets_set_parser.add_argument("--clusters", dest="clusters_json", required=True)
+    budgets_set_parser.add_argument(
+        "--papers-per-cluster", dest="papers_per_cluster", type=int, required=True
+    )
+    budgets_set_parser.add_argument("--time-horizon", dest="time_horizon", required=True)
+    budgets_set_parser.set_defaults(func=_cmd_budgets_set)
+
+    budgets_get_parser = budgets_subparsers.add_parser("get")
+    budgets_get_parser.add_argument("--run-id", dest="run_id", required=True)
+    budgets_get_parser.set_defaults(func=_cmd_budgets_get)
+
+    budgets_check_parser = budgets_subparsers.add_parser("check-exhaustion")
+    budgets_check_parser.add_argument("--run-id", dest="run_id", required=True)
+    budgets_check_parser.add_argument("--cluster-id", dest="cluster_id", required=True)
+    budgets_check_parser.add_argument(
+        "--papers-read-count", dest="papers_read_count", type=int, required=True
+    )
+    budgets_check_parser.set_defaults(func=_cmd_budgets_check_exhaustion)
 
     entry_parser = subparsers.add_parser("entry")
     entry_subparsers = entry_parser.add_subparsers(dest="entry_command", required=True)

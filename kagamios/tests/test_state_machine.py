@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from kagami.kernel.derived_state import set_depth_budgets
 from kagami.kernel.state_machine import StateMachineError, enter_state, get_state_cache
 from kagami.store.run import open_run
 
@@ -65,6 +66,7 @@ def test_backward_transition_requires_a_cause_and_is_refused_without_one(tmp_pat
     run_dir = _open(tmp_path)
     enter_state(run_dir, "frame")
     enter_state(run_dir, "map")
+    set_depth_budgets(run_dir, ["cluster-1"], papers_per_cluster=5, time_horizon="1 week")
     enter_state(run_dir, "deepen")
 
     with pytest.raises(StateMachineError):
@@ -75,6 +77,7 @@ def test_backward_transition_with_a_cause_succeeds_and_logs_it(tmp_path):
     run_dir = _open(tmp_path)
     enter_state(run_dir, "frame")
     enter_state(run_dir, "map")
+    set_depth_budgets(run_dir, ["cluster-1"], papers_per_cluster=5, time_horizon="1 week")
     enter_state(run_dir, "deepen")
 
     result = enter_state(run_dir, "frame", cause="reading reframed the intuition")
