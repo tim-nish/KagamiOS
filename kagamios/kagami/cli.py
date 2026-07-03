@@ -6,6 +6,12 @@ from pathlib import Path
 from kagami.config import load_config
 from kagami.corpus.adapters import resolve_provider
 from kagami.corpus.provider import ProviderError
+from kagami.kernel.cartographer import (
+    CartographerError,
+    create_field_map_clusters,
+    draft_clusterings,
+    validate_field_map_draft,
+)
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.metrics import count_full_pull_after_summary
@@ -133,6 +139,30 @@ def _cmd_corpus_search(args: argparse.Namespace) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _cmd_cartographer_draft(args: argparse.Namespace) -> dict:
+    papers = json.loads(args.papers_json)
+    try:
+        result = draft_clusterings(papers)
+        validate_field_map_draft(result["cuts"])
+        return {"ok": True, **result}
+    except CartographerError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_cartographer_create(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    papers = json.loads(args.papers_json)
+    papers_by_id = {p["id"]: p for p in papers}
+    cuts = json.loads(args.cuts_json)
+    chosen_cut = next((c for c in cuts if c["basis"] == args.chosen_basis), None)
+    if chosen_cut is None:
+        return {"ok": False, "error": f"no cut with basis '{args.chosen_basis}' among the provided cuts"}
+    try:
+        return create_field_map_clusters(run_dir, chosen_cut, cuts, papers_by_id)
+    except (CartographerError, ArtifactError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _cmd_metrics_provisional_count(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return {"ok": True, "provisional_count": count_provisional(run_dir)}
@@ -207,6 +237,22 @@ def build_parser() -> argparse.ArgumentParser:
     frame_complete_parser.add_argument("--sections", dest="sections_json", required=True)
     frame_complete_parser.add_argument("--summary", dest="summary", required=True)
     frame_complete_parser.set_defaults(func=_cmd_frame_complete)
+
+    cartographer_parser = subparsers.add_parser("cartographer")
+    cartographer_subparsers = cartographer_parser.add_subparsers(
+        dest="cartographer_command", required=True
+    )
+
+    cartographer_draft_parser = cartographer_subparsers.add_parser("draft")
+    cartographer_draft_parser.add_argument("--papers", dest="papers_json", required=True)
+    cartographer_draft_parser.set_defaults(func=_cmd_cartographer_draft)
+
+    cartographer_create_parser = cartographer_subparsers.add_parser("create")
+    cartographer_create_parser.add_argument("--run-id", dest="run_id", required=True)
+    cartographer_create_parser.add_argument("--papers", dest="papers_json", required=True)
+    cartographer_create_parser.add_argument("--cuts", dest="cuts_json", required=True)
+    cartographer_create_parser.add_argument("--chosen-basis", dest="chosen_basis", required=True)
+    cartographer_create_parser.set_defaults(func=_cmd_cartographer_create)
 
     corpus_parser = subparsers.add_parser("corpus")
     corpus_subparsers = corpus_parser.add_subparsers(dest="corpus_command", required=True)

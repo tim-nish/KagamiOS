@@ -198,6 +198,48 @@ def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsy
     assert result["violation"] is not None
 
 
+def test_cartographer_draft_then_create_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-cartographer-test"])
+    capsys.readouterr()
+
+    papers = json.dumps(
+        [
+            {"id": "ppr-1", "method_class": "empirical", "source": "openalex"},
+            {"id": "ppr-2", "method_class": "empirical", "source": "arxiv"},
+            {"id": "ppr-3", "method_class": "theoretical", "source": "arxiv"},
+        ]
+    )
+    exit_code = main(["cartographer", "draft", "--papers", papers])
+    draft_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert draft_out["ok"] is True
+    assert len(draft_out["cuts"]) >= 2
+
+    exit_code = main(
+        [
+            "cartographer", "create",
+            "--run-id", "run-cartographer-test",
+            "--papers", papers,
+            "--cuts", json.dumps(draft_out["cuts"]),
+            "--chosen-basis", draft_out["cuts"][0]["basis"],
+        ]
+    )
+    create_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert create_out["ok"] is True
+    assert len(create_out["field_map_ids"]) >= 1
+
+
+def test_cartographer_draft_rejects_a_single_indistinguishable_clustering(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    papers = json.dumps([{"id": "ppr-1", "method_class": "x", "source": "x"}])
+    exit_code = main(["cartographer", "draft", "--papers", papers])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+
 def test_corpus_search_cli_resolves_provider_from_config_not_a_hardcoded_call_site(
     tmp_path, monkeypatch, capsys
 ):
