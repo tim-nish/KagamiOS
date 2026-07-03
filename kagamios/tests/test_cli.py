@@ -666,3 +666,94 @@ def test_schema_version_refusal_exits_nonzero(tmp_path, monkeypatch, capsys):
     assert exit_code == 1
     assert result["ok"] is False
     assert "error" in result
+
+
+def test_locate_write_mark_meaningful_and_validate_exit_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-locate-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-locate-test"
+    base_fields = {
+        "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": "",
+    }
+    gap = create_artifact(
+        run_dir,
+        "gap-register",
+        base_fields,
+        sections={
+            "statement": "",
+            "evidence_of_absence": "",
+            "why_does_this_gap_exist": "",
+            "meaningful_to_me": "",
+            "micro_probe_evidence": "",
+        },
+    )
+
+    exit_code = main(
+        ["locate", "write", "--run-id", "run-locate-test", "--art-id", gap["id"],
+         "--field", "why_does_this_gap_exist", "--content", "not-a-real-reason"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+    exit_code = main(
+        ["locate", "write", "--run-id", "run-locate-test", "--art-id", gap["id"],
+         "--field", "why_does_this_gap_exist", "--content", "genuinely_open"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+    main(
+        ["locate", "write", "--run-id", "run-locate-test", "--art-id", gap["id"],
+         "--field", "statement", "--content", "nobody has combined X with Y"]
+    )
+    capsys.readouterr()
+    main(
+        ["locate", "write", "--run-id", "run-locate-test", "--art-id", gap["id"],
+         "--field", "evidence_of_absence", "--content", "searched venues A/B 2019-2025, zero hits"]
+    )
+    capsys.readouterr()
+
+    exit_code = main(
+        ["locate", "write", "--run-id", "run-locate-test", "--art-id", gap["id"],
+         "--field", "meaningful_to_me", "--content", "meaningful"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+    exit_code = main(
+        ["locate", "mark-meaningful", "--run-id", "run-locate-test", "--art-id", gap["id"],
+         "--disposition", "meaningful"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+    exit_code = main(
+        ["locate", "record-micro-probe", "--run-id", "run-locate-test", "--art-id", gap["id"],
+         "--evidence", "ran a 2hr feasibility check: approach compiles"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+    main(["review", "--run-id", "run-locate-test", "--type", "gap-register", "--art-id", gap["id"]])
+    capsys.readouterr()
+    main(
+        ["accept", "--run-id", "run-locate-test", "--type", "gap-register", "--art-id", gap["id"],
+         "--summary", "\n".join(f"line {i}" for i in range(6))]
+    )
+    capsys.readouterr()
+
+    exit_code = main(
+        ["locate", "validate-locate-exit", "--run-id", "run-locate-test", "--art-id", gap["id"]]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "violations": []}

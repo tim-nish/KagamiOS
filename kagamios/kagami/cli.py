@@ -24,6 +24,13 @@ from kagami.kernel.dossier import DossierError, mark_representative_paper_read, 
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.historian import HistorianError, historian_write
+from kagami.kernel.locate import (
+    LocateError,
+    locate_write,
+    mark_gap_meaningful,
+    record_micro_probe_evidence,
+    validate_locate_exit,
+)
 from kagami.kernel.metrics import count_full_pull_after_summary
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
@@ -248,6 +255,35 @@ def _cmd_synthesize_validate(args: argparse.Namespace) -> dict:
     return validate_landscape_synthesis(run_dir, args.art_id)
 
 
+def _cmd_locate_write(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return locate_write(run_dir, args.art_id, args.field, args.content)
+    except (LocateError, ArtifactError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_locate_mark_meaningful(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return mark_gap_meaningful(run_dir, args.art_id, args.disposition)
+    except (LocateError, ArtifactError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_locate_record_micro_probe(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return record_micro_probe_evidence(run_dir, args.art_id, args.evidence)
+    except (LocateError, ArtifactError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_locate_validate_exit(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return validate_locate_exit(run_dir, args.art_id)
+
+
 def _cmd_state_derive(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return compute_run_nominal_state(run_dir)
@@ -466,6 +502,33 @@ def build_parser() -> argparse.ArgumentParser:
     synthesize_validate_parser.add_argument("--run-id", dest="run_id", required=True)
     synthesize_validate_parser.add_argument("--art-id", dest="art_id", required=True)
     synthesize_validate_parser.set_defaults(func=_cmd_synthesize_validate)
+
+    locate_parser = subparsers.add_parser("locate")
+    locate_subparsers = locate_parser.add_subparsers(dest="locate_command", required=True)
+
+    locate_write_parser = locate_subparsers.add_parser("write")
+    locate_write_parser.add_argument("--run-id", dest="run_id", required=True)
+    locate_write_parser.add_argument("--art-id", dest="art_id", required=True)
+    locate_write_parser.add_argument("--field", dest="field", required=True)
+    locate_write_parser.add_argument("--content", dest="content", required=True)
+    locate_write_parser.set_defaults(func=_cmd_locate_write)
+
+    locate_mark_meaningful_parser = locate_subparsers.add_parser("mark-meaningful")
+    locate_mark_meaningful_parser.add_argument("--run-id", dest="run_id", required=True)
+    locate_mark_meaningful_parser.add_argument("--art-id", dest="art_id", required=True)
+    locate_mark_meaningful_parser.add_argument("--disposition", dest="disposition", required=True)
+    locate_mark_meaningful_parser.set_defaults(func=_cmd_locate_mark_meaningful)
+
+    locate_record_micro_probe_parser = locate_subparsers.add_parser("record-micro-probe")
+    locate_record_micro_probe_parser.add_argument("--run-id", dest="run_id", required=True)
+    locate_record_micro_probe_parser.add_argument("--art-id", dest="art_id", required=True)
+    locate_record_micro_probe_parser.add_argument("--evidence", dest="evidence", required=True)
+    locate_record_micro_probe_parser.set_defaults(func=_cmd_locate_record_micro_probe)
+
+    locate_validate_exit_parser = locate_subparsers.add_parser("validate-locate-exit")
+    locate_validate_exit_parser.add_argument("--run-id", dest="run_id", required=True)
+    locate_validate_exit_parser.add_argument("--art-id", dest="art_id", required=True)
+    locate_validate_exit_parser.set_defaults(func=_cmd_locate_validate_exit)
 
     cartographer_parser = subparsers.add_parser("cartographer")
     cartographer_subparsers = cartographer_parser.add_subparsers(

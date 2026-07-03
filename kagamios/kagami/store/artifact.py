@@ -289,6 +289,48 @@ def attempt_ai_write(
         return {"ok": True}
 
 
+def human_write_section(
+    run_dir: Path,
+    type_slug: str,
+    art_id: str,
+    section_title: str,
+    new_body: str,
+) -> dict:
+    """The human-edit-surface write path (AD-6) for a schema field the
+    researcher records directly — e.g. a constitutive-triad field like
+    `gap-register.meaningful_to_me` (FR-4) or micro-probe evidence. Unlike
+    `attempt_ai_write`, there is no `author: human` refusal (the researcher
+    is exactly who is allowed to write here) and no human-touched-span
+    quarantine (a researcher overwriting their own prior mark is never a
+    conflict) — the section's author class is set to `human` directly.
+    """
+    art_dir = _artifact_dir(run_dir, type_slug, art_id)
+    meta_path = art_dir / "meta.yaml"
+
+    with acquire_run_lock(run_dir / ".lock"):
+        meta = _read_meta(meta_path)
+        frontmatter, sections = parse_document((art_dir / "current.md").read_text())
+
+        target = next((s for s in sections if s.title == section_title), None)
+        if target is None:
+            raise ArtifactError(f"no section named '{section_title}' on artifact {art_id}")
+
+        section_meta = next(sm for sm in meta["sections"] if sm["id"] == target.id)
+
+        target.body = new_body
+        new_text = render_document(frontmatter, sections)
+        atomic_write(art_dir / "current.md", new_text)
+        section_meta["content_hash"] = _content_hash(new_body)
+        section_meta["author"] = "human"
+        _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "human_edit",
+            {"kind": "human_write", "artifact_type": type_slug, "artifact_id": art_id, "field": section_title},
+        )
+        return {"ok": True}
+
+
 def scan(run_dir: Path, type_slug: str, art_id: str) -> dict:
     art_dir = _artifact_dir(run_dir, type_slug, art_id)
     meta_path = art_dir / "meta.yaml"
