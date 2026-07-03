@@ -1,3 +1,13 @@
 # Local-only dev environment (not part of the public repo)
 .devcontainer/
 .env*
+
+# BMAD framework installation (vendored tooling, not project content).
+# _bmad/config.toml, _bmad/config.user.toml, _bmad/bmm/, _bmad/core/,
+# _bmad/scripts/, _bmad/_config/ are all installer-managed and regenerated
+# on every install. _bmad/custom/ is kept (it's the project/team
+# customization layer); its own nested .gitignore already excludes the
+# personal *.user.toml within it.
+.claude/skills/bmad-*/
+_bmad/*
+!_bmad/custom/
