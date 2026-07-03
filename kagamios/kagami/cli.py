@@ -42,7 +42,7 @@ from kagami.kernel.locate import (
     record_micro_probe_evidence,
     validate_locate_exit,
 )
-from kagami.kernel.metrics import count_full_pull_after_summary
+from kagami.kernel.metrics import compute_derived_metrics, count_full_pull_after_summary
 from kagami.kernel.monitor import MonitorError, mark_dormant, monitor_sweep
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
@@ -408,6 +408,11 @@ def _cmd_metrics_summary_sufficiency(args: argparse.Namespace) -> dict:
     return {"ok": True, "full_pull_after_summary_count": count_full_pull_after_summary(run_dir)}
 
 
+def _cmd_metrics_derived(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return compute_derived_metrics(run_dir)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kagami")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -747,6 +752,10 @@ def build_parser() -> argparse.ArgumentParser:
     summary_sufficiency_parser = metrics_subparsers.add_parser("summary-sufficiency")
     summary_sufficiency_parser.add_argument("--run-id", dest="run_id", required=True)
     summary_sufficiency_parser.set_defaults(func=_cmd_metrics_summary_sufficiency)
+
+    derived_parser = metrics_subparsers.add_parser("derived")
+    derived_parser.add_argument("--run-id", dest="run_id", required=True)
+    derived_parser.set_defaults(func=_cmd_metrics_derived)
 
     gate_parser = subparsers.add_parser("gate")
     gate_subparsers = gate_parser.add_subparsers(dest="gate_command", required=True)

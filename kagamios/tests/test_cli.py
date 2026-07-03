@@ -773,6 +773,32 @@ def test_metrics_provisional_count_reports_zero_with_no_provisional_artifacts(tm
     assert result == {"ok": True, "provisional_count": 0}
 
 
+def test_metrics_derived_reports_all_four_blocks_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-derived-metrics-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-derived-metrics-test"
+    create_artifact(
+        run_dir, "field-map",
+        {"depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": ""},
+        sections={"cluster_name": "x"},
+    )
+
+    exit_code = main(["metrics", "derived", "--run-id", "run-derived-metrics-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert "question_economics" in result
+    assert "token_ledger" in result
+    assert "override_profile" in result
+    assert result["decision_block"]["candidate_origins"] == []
+    assert result["decision_block"]["falsifiable_claims"] == []
+    assert result["decision_block"]["provisional_count"] == 0
+
+
 def test_gate_propose_and_approve_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 
