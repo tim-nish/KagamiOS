@@ -11,6 +11,22 @@ from kagami.corpus.adapters import (
 )
 from kagami.corpus.provider import LiteratureProvider, ProviderError
 
+
+def test_resolve_provider_threads_backoff_config_into_the_adapter():
+    provider = resolve_provider(
+        {"literature_provider": "arxiv", "provider_max_retries": 7, "provider_base_delay_seconds": 0.1}
+    )
+    assert provider._max_retries == 7
+    assert provider._base_delay_seconds == 0.1
+
+
+def test_resolve_provider_without_backoff_config_uses_adapter_defaults():
+    from kagami.corpus.backoff import DEFAULT_BASE_DELAY_SECONDS, DEFAULT_MAX_RETRIES
+
+    provider = resolve_provider({"literature_provider": "arxiv"})
+    assert provider._max_retries == DEFAULT_MAX_RETRIES
+    assert provider._base_delay_seconds == DEFAULT_BASE_DELAY_SECONDS
+
 FIXTURES = {
     "openalex": {
         "search": {"results": [{"doi": "10.1/a", "title": "Paper A"}]},

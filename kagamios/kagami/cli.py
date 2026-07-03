@@ -47,6 +47,7 @@ from kagami.kernel.locate import (
 from kagami.kernel.dispatch import DispatchError, resolve_model
 from kagami.kernel.metrics import compute_derived_metrics, count_full_pull_after_summary
 from kagami.kernel.monitor import MonitorError, mark_dormant, monitor_sweep
+from kagami.kernel.refusal import DEFAULT_REFUSAL_CEILING, record_refusal_and_check_ceiling
 from kagami.kernel.report import ReportError, report_llm_call
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
@@ -66,6 +67,41 @@ from kagami.store.run import open_run
 
 def _run_dir(run_id: str):
     return resolve_output_root() / "runs" / run_id
+
+
+_SUBCOMMAND_DEST_NAMES = (
+    "run_command", "state_command", "monitor_command", "budgets_command",
+    "entry_command", "frame_command", "deepen_command", "repair_command",
+    "skeptic_command", "historian_command", "dossier_command",
+    "dissolution_command", "synthesize_command", "locate_command",
+    "cartographer_command", "corpus_command", "ask_command",
+    "metrics_command", "gate_command", "report_command", "dispatch_command",
+)
+
+
+def _entrypoint_key(args: argparse.Namespace) -> str:
+    """AD-26(a): the `entrypoint` half of the `(entrypoint, target)` tuple
+    the refusal ceiling keys on — the full dotted subcommand path, e.g.
+    `historian.write`, so two different subcommands never share a
+    ceiling."""
+    parts = [args.command]
+    for dest in _SUBCOMMAND_DEST_NAMES:
+        value = getattr(args, dest, None)
+        if value:
+            parts.append(value)
+    return ".".join(parts)
+
+
+def _target_key(args: argparse.Namespace) -> str:
+    """AD-26(a): the `target` half — every argument except `func` and the
+    subcommand-selector dests themselves (already folded into the
+    entrypoint key), so two calls only share a target when every other
+    argument is identical too. A call with different content (e.g. a
+    different `--body`) is a different target, not a retry — the ceiling
+    exists for identical retries, not iterative attempts."""
+    excluded = {"func", "command"} | set(_SUBCOMMAND_DEST_NAMES)
+    payload = {k: v for k, v in sorted(vars(args).items()) if k not in excluded}
+    return json.dumps(payload, sort_keys=True, default=str)
 
 
 def _cmd_run_open(args: argparse.Namespace) -> dict:
@@ -859,7 +895,38 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    result = args.func(args)
+    try:
+        result = args.func(args)
+    except json.JSONDecodeError as exc:
+        # Several _cmd_* functions parse a --X-json argument before their
+        # own try/except begins (e.g. _cmd_frame_complete); malformed JSON
+        # from the harness must be a clean refusal the ceiling below can
+        # act on, never an unhandled crash — a crash is a worse safety
+        # failure than a silent hang (Story 7.4's own scope).
+        result = {"ok": False, "error": f"malformed JSON argument: {exc}"}
+
+    run_id = getattr(args, "run_id", None)
+    if not result.get("ok") and run_id:
+        # FR-48/AD-26(a): every refusal against a run is logged and checked
+        # against the consecutive-identical-refusal ceiling — a
+        # core-enforced backstop against a retry-storm burning tokens,
+        # never something a skill/harness rule alone could guarantee
+        # (AD-1's amendment note).
+        config = load_config(Path.cwd())
+        ceiling = config.get("refusal_ceiling", DEFAULT_REFUSAL_CEILING)
+        run_dir = _run_dir(run_id)
+        if run_dir.is_dir():
+            escalation = record_refusal_and_check_ceiling(
+                run_dir, _entrypoint_key(args), _target_key(args), result.get("error"), ceiling
+            )
+            if escalation["escalate"]:
+                result = {
+                    "ok": False,
+                    "status": "requires_researcher",
+                    "error": result.get("error"),
+                    "consecutive_refusals": escalation["count"],
+                }
+
     print(json.dumps(result))
     return 0 if result.get("ok") else 1
 
