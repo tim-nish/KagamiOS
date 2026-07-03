@@ -1,11 +1,16 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
+from kagami.config import load_config
+from kagami.corpus.adapters import resolve_provider
+from kagami.corpus.provider import ProviderError
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.metrics import count_full_pull_after_summary
 from kagami.kernel.profile import validate_minimal_profile
+from kagami.kernel.scout import CorpusAccessError, search_corpus
 from kagami.kernel.state_machine import StateMachineError, enter_state
 from kagami.paths import resolve_output_root
 from kagami.schema_version import SchemaVersionError
@@ -117,6 +122,17 @@ def _cmd_ask_revise(args: argparse.Namespace) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _cmd_corpus_search(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    output_root = resolve_output_root()
+    config = load_config(Path.cwd())
+    try:
+        provider = resolve_provider(config)
+        return search_corpus(run_dir, output_root, provider, args.query, args.role)
+    except (ProviderError, CorpusAccessError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _cmd_metrics_provisional_count(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return {"ok": True, "provisional_count": count_provisional(run_dir)}
@@ -191,6 +207,15 @@ def build_parser() -> argparse.ArgumentParser:
     frame_complete_parser.add_argument("--sections", dest="sections_json", required=True)
     frame_complete_parser.add_argument("--summary", dest="summary", required=True)
     frame_complete_parser.set_defaults(func=_cmd_frame_complete)
+
+    corpus_parser = subparsers.add_parser("corpus")
+    corpus_subparsers = corpus_parser.add_subparsers(dest="corpus_command", required=True)
+
+    corpus_search_parser = corpus_subparsers.add_parser("search")
+    corpus_search_parser.add_argument("--run-id", dest="run_id", required=True)
+    corpus_search_parser.add_argument("--role", dest="role", required=True)
+    corpus_search_parser.add_argument("--query", dest="query", required=True)
+    corpus_search_parser.set_defaults(func=_cmd_corpus_search)
 
     read_parser = subparsers.add_parser("read")
     read_parser.add_argument("--run-id", dest="run_id", required=True)

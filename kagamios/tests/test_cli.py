@@ -198,6 +198,60 @@ def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsy
     assert result["violation"] is not None
 
 
+def test_corpus_search_cli_resolves_provider_from_config_not_a_hardcoded_call_site(
+    tmp_path, monkeypatch, capsys
+):
+    import kagami.cli as cli_module
+    from kagami.corpus.provider import LiteratureProvider
+
+    class _StubProvider(LiteratureProvider):
+        name = "stub"
+
+        def search(self, query, limit=20):
+            return [{"canonical_key": "10.1/a", "title": "Paper A", "source": "stub"}]
+
+        def paper_metadata(self, canonical_key):
+            raise NotImplementedError
+
+        def citation_graph(self, canonical_key):
+            raise NotImplementedError
+
+    captured_config = {}
+
+    def _fake_resolve_provider(config, fetch=None):
+        captured_config.update(config)
+        return _StubProvider()
+
+    monkeypatch.setattr(cli_module, "resolve_provider", _fake_resolve_provider)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("literature_provider: stub\n")
+
+    main(["run", "open", "--run-id", "run-corpus-test"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["corpus", "search", "--run-id", "run-corpus-test", "--role", "scout", "--query", "signatures"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert result["papers"][0]["bibliographic_identity"] == "10.1/a"
+    assert captured_config == {"literature_provider": "stub"}
+
+
+def test_corpus_search_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-refuse"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["corpus", "search", "--run-id", "run-corpus-refuse", "--role", "cartographer", "--query", "x"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+
 def test_ask_emit_then_answer_then_revise_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-ask-test"])
