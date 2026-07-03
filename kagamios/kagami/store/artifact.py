@@ -236,7 +236,7 @@ def scan(run_dir: Path, type_slug: str, art_id: str) -> dict:
                 section_meta["content_hash"] = new_hash
                 if section_meta["author"] == "ai":
                     section_meta["author"] = "ai-drafted-human-confirmed"
-                changed_sections.append(section.id)
+                changed_sections.append({"id": section.id, "title": section.title})
 
         new_version = meta["current_version"] + 1
         frontmatter["version"] = new_version
@@ -258,6 +258,12 @@ def scan(run_dir: Path, type_slug: str, art_id: str) -> dict:
 
 
 def mark_dependents_stale(run_dir: Path, dependency_id: str, dependency_new_version: int) -> list[str]:
+    """FR-13 / FR-18: stale anything pinning an outdated version of `dependency_id`.
+
+    Checks both `depends_on` (artifact-to-artifact pins) and `elicited_from`
+    (artifact-to-ledger-entry pins, per FR-18's CONSUME step and E5 answer
+    revisions), since both use the same `id@vN` pin format.
+    """
     artifacts_root = run_dir / "artifacts"
     staled = []
     if not artifacts_root.exists():
@@ -267,20 +273,90 @@ def mark_dependents_stale(run_dir: Path, dependency_id: str, dependency_new_vers
         for meta_path in artifacts_root.glob("*/*/meta.yaml"):
             current_path = meta_path.parent / "current.md"
             frontmatter, sections = parse_document(current_path.read_text())
-            pins = frontmatter.get("depends_on") or []
+            pins = (frontmatter.get("depends_on") or []) + (frontmatter.get("elicited_from") or [])
 
+            staled_this_artifact = False
             for pin in pins:
                 pinned_id, _, pinned_version_str = pin.partition("@v")
                 if pinned_id != dependency_id or not pinned_version_str:
                     continue
                 if int(pinned_version_str) < dependency_new_version:
-                    meta = _read_meta(meta_path)
-                    if meta["status"] != "stale":
-                        meta["status"] = "stale"
-                        _write_meta(meta_path, meta)
-                    frontmatter["status"] = "stale"
-                    atomic_write(current_path, render_document(frontmatter, sections))
-                    staled.append(meta["id"])
+                    staled_this_artifact = True
                 break
 
+            if staled_this_artifact:
+                meta = _read_meta(meta_path)
+                if meta["status"] != "stale":
+                    meta["status"] = "stale"
+                    _write_meta(meta_path, meta)
+                frontmatter["status"] = "stale"
+                atomic_write(current_path, render_document(frontmatter, sections))
+                staled.append(meta["id"])
+
     return staled
+
+
+def pin_elicited_from(run_dir: Path, type_slug: str, art_id: str, ledger_ref: str) -> dict:
+    """FR-18 CONSUME step: pin an answered ledger entry onto a consuming artifact."""
+    art_dir = _artifact_dir(run_dir, type_slug, art_id)
+    meta_path = art_dir / "meta.yaml"
+
+    with acquire_run_lock(run_dir / ".lock"):
+        meta = _read_meta(meta_path)
+        frontmatter, sections = parse_document((art_dir / "current.md").read_text())
+
+        elicited_from = frontmatter.setdefault("elicited_from", [])
+        if ledger_ref in elicited_from:
+            return {"ok": True, "version": meta["current_version"], "changed": False}
+        elicited_from.append(ledger_ref)
+
+        new_version = meta["current_version"] + 1
+        frontmatter["version"] = new_version
+        frontmatter["updated"] = utc_now_iso()
+        new_text = render_document(frontmatter, sections)
+
+        atomic_write(art_dir / f"v{new_version}.md", new_text)
+        atomic_write(art_dir / "current.md", new_text)
+        meta["current_version"] = new_version
+        meta["content_hash"] = _content_hash(new_text)
+        _write_meta(meta_path, meta)
+
+    return {"ok": True, "version": new_version, "changed": True}
+
+
+def flag_provisional(run_dir: Path, type_slug: str, art_id: str) -> dict:
+    """FR-20: flag an artifact provisional when a blocking unknown went unanswered."""
+    art_dir = _artifact_dir(run_dir, type_slug, art_id)
+    meta_path = art_dir / "meta.yaml"
+
+    with acquire_run_lock(run_dir / ".lock"):
+        meta = _read_meta(meta_path)
+        frontmatter, sections = parse_document((art_dir / "current.md").read_text())
+
+        frontmatter["status"] = "provisional"
+        new_version = meta["current_version"] + 1
+        frontmatter["version"] = new_version
+        frontmatter["updated"] = utc_now_iso()
+        new_text = render_document(frontmatter, sections)
+
+        atomic_write(art_dir / f"v{new_version}.md", new_text)
+        atomic_write(art_dir / "current.md", new_text)
+        meta["current_version"] = new_version
+        meta["status"] = "provisional"
+        meta["content_hash"] = _content_hash(new_text)
+        _write_meta(meta_path, meta)
+
+    return {"ok": True, "version": new_version}
+
+
+def count_provisional(run_dir: Path) -> int:
+    """FR-20: the provisional count surfaced at the Decide gate rather than hidden."""
+    artifacts_root = run_dir / "artifacts"
+    if not artifacts_root.exists():
+        return 0
+    count = 0
+    for meta_path in artifacts_root.glob("*/*/meta.yaml"):
+        meta = _read_meta(meta_path)
+        if meta.get("status") == "provisional":
+            count += 1
+    return count

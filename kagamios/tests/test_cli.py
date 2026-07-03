@@ -74,6 +74,56 @@ def test_scan_subcommand_reports_no_change_then_a_new_version(tmp_path, monkeypa
     assert changed["version"] == 2
 
 
+def test_ask_emit_then_answer_then_revise_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-ask-test"])
+    capsys.readouterr()
+
+    questions = json.dumps(
+        [{"target": "field-map.scope", "leverage_class": "L2", "form": "menu", "default": "1,2"}]
+    )
+    exit_code = main(["ask", "emit", "--run-id", "run-ask-test", "--questions", questions])
+    emitted = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert emitted["ok"] is True
+    q_id = emitted["ids"][0]
+
+    exit_code = main(["ask", "answer", "--run-id", "run-ask-test", "--id", q_id, "--answer", "1,2,4"])
+    answered = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert answered["ok"] is True
+
+    exit_code = main(["ask", "revise", "--run-id", "run-ask-test", "--id", q_id, "--answer", "1,2"])
+    revised = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert revised["version"] == 2
+
+
+def test_ask_emit_over_batch_limit_exits_nonzero(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-ask-batch"])
+    capsys.readouterr()
+
+    questions = json.dumps(
+        [{"target": f"field-map.scope{i}", "leverage_class": "L2", "form": "menu"} for i in range(6)]
+    )
+    exit_code = main(["ask", "emit", "--run-id", "run-ask-batch", "--questions", questions])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+
+def test_metrics_provisional_count_reports_zero_with_no_provisional_artifacts(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-metrics-test"])
+    capsys.readouterr()
+
+    exit_code = main(["metrics", "provisional-count", "--run-id", "run-metrics-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "provisional_count": 0}
+
+
 def test_schema_version_refusal_exits_nonzero(tmp_path, monkeypatch, capsys):
     import yaml
 
