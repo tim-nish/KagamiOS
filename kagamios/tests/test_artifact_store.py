@@ -373,3 +373,21 @@ def test_accepting_a_gap_register_emits_the_mvp_terminal_event(tmp_path):
     assert len(terminal_events) == 1
     assert terminal_events[0]["kind"] == "mvp_terminal_reached"
     assert terminal_events[0]["artifact_id"] == gap_id
+
+
+def test_accepting_a_dissolution_memo_emits_a_terminal_event_with_the_same_standing(tmp_path):
+    memo = create_artifact(
+        tmp_path,
+        "dissolution-memo",
+        _base_fields(what_dissolved_it=["art-1@v1"], depends_on=["art-1@v1"]),
+        sections={"intuition_summary": "x", "what_was_learned": "y", "revival_conditions": "z"},
+    )
+    review_artifact(tmp_path, "dissolution-memo", memo["id"])
+    accept_artifact(tmp_path, "dissolution-memo", memo["id"], "\n".join(f"line {i}" for i in range(6)))
+
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    terminal_events = [e for e in events if e["family"] == "terminal_event"]
+    assert len(terminal_events) == 1
+    assert terminal_events[0]["kind"] == "dissolution_reached"
+    assert terminal_events[0]["terminal"] == "dissolved"
+    assert terminal_events[0]["artifact_id"] == memo["id"]

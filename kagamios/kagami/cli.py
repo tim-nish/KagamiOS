@@ -20,6 +20,15 @@ from kagami.kernel.derived_state import (
     set_depth_budgets,
 )
 from kagami.kernel.deepen import claim_cluster_sections
+from kagami.kernel.dissolution import (
+    DissolutionError,
+    check_dissolution_terminal,
+    draft_dissolution_memo,
+    record_revival_conditions,
+    record_what_was_learned,
+    spin_off_salvaged_fragment,
+    validate_dissolution_exit,
+)
 from kagami.kernel.dossier import DossierError, mark_representative_paper_read, validate_deepen_exit
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
@@ -316,6 +325,46 @@ def _cmd_budgets_check_exhaustion(args: argparse.Namespace) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _cmd_dissolution_draft(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    dissolving_evidence = json.loads(args.dissolving_evidence_json)
+    dissolving_ledger_refs = json.loads(args.dissolving_ledger_refs_json) if args.dissolving_ledger_refs_json else []
+    try:
+        return draft_dissolution_memo(
+            run_dir, args.intuition_summary, dissolving_evidence, dissolving_ledger_refs
+        )
+    except DissolutionError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_dissolution_record_learned(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return record_what_was_learned(run_dir, args.art_id, args.content)
+
+
+def _cmd_dissolution_record_revival_conditions(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return record_revival_conditions(run_dir, args.art_id, args.content)
+
+
+def _cmd_dissolution_spin_off_fragment(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return spin_off_salvaged_fragment(run_dir, args.art_id, args.raw_capture, args.entry_mode)
+    except DissolutionError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_dissolution_validate_exit(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return validate_dissolution_exit(run_dir, args.art_id)
+
+
+def _cmd_dissolution_check_terminal(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return check_dissolution_terminal(run_dir)
+
+
 def _cmd_gate_propose(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     try:
@@ -510,6 +559,50 @@ def build_parser() -> argparse.ArgumentParser:
     dossier_validate_parser.add_argument("--run-id", dest="run_id", required=True)
     dossier_validate_parser.add_argument("--art-id", dest="art_id", required=True)
     dossier_validate_parser.set_defaults(func=_cmd_dossier_validate_deepen_exit)
+
+    dissolution_parser = subparsers.add_parser("dissolution")
+    dissolution_subparsers = dissolution_parser.add_subparsers(dest="dissolution_command", required=True)
+
+    dissolution_draft_parser = dissolution_subparsers.add_parser("draft")
+    dissolution_draft_parser.add_argument("--run-id", dest="run_id", required=True)
+    dissolution_draft_parser.add_argument("--intuition-summary", dest="intuition_summary", required=True)
+    dissolution_draft_parser.add_argument(
+        "--dissolving-evidence", dest="dissolving_evidence_json", required=True
+    )
+    dissolution_draft_parser.add_argument(
+        "--dissolving-ledger-refs", dest="dissolving_ledger_refs_json", default=None
+    )
+    dissolution_draft_parser.set_defaults(func=_cmd_dissolution_draft)
+
+    dissolution_record_learned_parser = dissolution_subparsers.add_parser("record-learned")
+    dissolution_record_learned_parser.add_argument("--run-id", dest="run_id", required=True)
+    dissolution_record_learned_parser.add_argument("--art-id", dest="art_id", required=True)
+    dissolution_record_learned_parser.add_argument("--content", dest="content", required=True)
+    dissolution_record_learned_parser.set_defaults(func=_cmd_dissolution_record_learned)
+
+    dissolution_record_revival_parser = dissolution_subparsers.add_parser("record-revival-conditions")
+    dissolution_record_revival_parser.add_argument("--run-id", dest="run_id", required=True)
+    dissolution_record_revival_parser.add_argument("--art-id", dest="art_id", required=True)
+    dissolution_record_revival_parser.add_argument("--content", dest="content", required=True)
+    dissolution_record_revival_parser.set_defaults(func=_cmd_dissolution_record_revival_conditions)
+
+    dissolution_spin_off_parser = dissolution_subparsers.add_parser("spin-off-fragment")
+    dissolution_spin_off_parser.add_argument("--run-id", dest="run_id", required=True)
+    dissolution_spin_off_parser.add_argument("--art-id", dest="art_id", required=True)
+    dissolution_spin_off_parser.add_argument("--raw-capture", dest="raw_capture", required=True)
+    dissolution_spin_off_parser.add_argument(
+        "--entry-mode", dest="entry_mode", default="intuition-first"
+    )
+    dissolution_spin_off_parser.set_defaults(func=_cmd_dissolution_spin_off_fragment)
+
+    dissolution_validate_exit_parser = dissolution_subparsers.add_parser("validate-exit")
+    dissolution_validate_exit_parser.add_argument("--run-id", dest="run_id", required=True)
+    dissolution_validate_exit_parser.add_argument("--art-id", dest="art_id", required=True)
+    dissolution_validate_exit_parser.set_defaults(func=_cmd_dissolution_validate_exit)
+
+    dissolution_check_terminal_parser = dissolution_subparsers.add_parser("check-terminal")
+    dissolution_check_terminal_parser.add_argument("--run-id", dest="run_id", required=True)
+    dissolution_check_terminal_parser.set_defaults(func=_cmd_dissolution_check_terminal)
 
     synthesize_parser = subparsers.add_parser("synthesize")
     synthesize_subparsers = synthesize_parser.add_subparsers(dest="synthesize_command", required=True)

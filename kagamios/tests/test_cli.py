@@ -446,6 +446,85 @@ def test_dossier_mark_read_and_validate_deepen_exit_round_trip_through_cli(tmp_p
     assert result["ok"] is True
 
 
+def test_dissolution_full_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-dissolution-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-dissolution-test"
+    dep = create_artifact(
+        run_dir,
+        "field-map",
+        {"depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": ""},
+        sections={"cluster_name": "x"},
+    )
+    evidence = json.dumps([f"{dep['id']}@v1"])
+
+    exit_code = main(
+        ["dissolution", "draft", "--run-id", "run-dissolution-test",
+         "--intuition-summary", "combining X and Y for Z",
+         "--dissolving-evidence", evidence]
+    )
+    draft_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert draft_out["ok"] is True
+    memo_id = draft_out["id"]
+
+    exit_code = main(["dissolution", "check-terminal", "--run-id", "run-dissolution-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "terminal_reached": False}
+
+    exit_code = main(
+        ["dissolution", "spin-off-fragment", "--run-id", "run-dissolution-test", "--art-id", memo_id,
+         "--raw-capture", "the sub-idea about Y might still work"]
+    )
+    spin_off_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert spin_off_out["ok"] is True
+
+    exit_code = main(
+        ["dissolution", "record-learned", "--run-id", "run-dissolution-test", "--art-id", memo_id,
+         "--content", "the mechanism doesn't generalize"]
+    )
+    assert exit_code == 0
+    capsys.readouterr()
+
+    exit_code = main(
+        ["dissolution", "record-revival-conditions", "--run-id", "run-dissolution-test", "--art-id", memo_id,
+         "--content", "revisit if a new dataset appears"]
+    )
+    assert exit_code == 0
+    capsys.readouterr()
+
+    main(["review", "--run-id", "run-dissolution-test", "--type", "dissolution-memo", "--art-id", memo_id])
+    capsys.readouterr()
+    main(
+        ["accept", "--run-id", "run-dissolution-test", "--type", "dissolution-memo", "--art-id", memo_id,
+         "--summary", "\n".join(f"line {i}" for i in range(6))]
+    )
+    capsys.readouterr()
+
+    exit_code = main(
+        ["dissolution", "validate-exit", "--run-id", "run-dissolution-test", "--art-id", memo_id]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "violations": []}
+
+    exit_code = main(["dissolution", "check-terminal", "--run-id", "run-dissolution-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "terminal_reached": True}
+
+    exit_code = main(["state", "enter", "--run-id", "run-dissolution-test", "--state", "dissolved"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["violation"] is None
+
+
 def test_budgets_set_get_and_check_exhaustion_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-budgets-test"])

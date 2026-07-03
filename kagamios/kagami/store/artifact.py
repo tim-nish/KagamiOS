@@ -31,6 +31,7 @@ SUMMARY_MAX_LINES = 10
 
 GAP_REGISTER_TYPE_SLUG = "gap-register"
 CANDIDATE_DIRECTION_GENERATION_WINDOW = "propose"
+DISSOLUTION_MEMO_TYPE_SLUG = "dissolution-memo"
 
 
 class ArtifactError(Exception):
@@ -98,6 +99,20 @@ def is_gap_register_accepted(run_dir: Path) -> bool:
     return any(
         _read_meta(meta_path).get("status") == "accepted"
         for meta_path in gap_register_root.glob("*/meta.yaml")
+    )
+
+
+def is_dissolution_memo_accepted(run_dir: Path) -> bool:
+    """FR-7: Dissolved carries the same standing as Decided or an accepted
+    Gap Register — checkable purely from whether any Dissolution Memo in
+    the run has reached `accepted`, the same pattern as
+    `is_gap_register_accepted`."""
+    memo_root = run_dir / "artifacts" / DISSOLUTION_MEMO_TYPE_SLUG
+    if not memo_root.exists():
+        return False
+    return any(
+        _read_meta(meta_path).get("status") == "accepted"
+        for meta_path in memo_root.glob("*/meta.yaml")
     )
 
 
@@ -552,6 +567,14 @@ def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) ->
                 run_dir,
                 "terminal_event",
                 {"kind": "mvp_terminal_reached", "terminal": "gap-register-accepted", "artifact_id": art_id},
+            )
+        if type_slug == DISSOLUTION_MEMO_TYPE_SLUG:
+            # FR-7: Dissolved carries the same standing as Decided or an
+            # accepted Gap Register — never a lesser "abandoned" status.
+            append_event(
+                run_dir,
+                "terminal_event",
+                {"kind": "dissolution_reached", "terminal": "dissolved", "artifact_id": art_id},
             )
 
     return {"ok": True, "version": new_version}
