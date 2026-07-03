@@ -73,6 +73,18 @@ def _write_meta(meta_path: Path, meta: dict) -> None:
     atomic_write(meta_path, yaml.safe_dump(meta, sort_keys=False))
 
 
+def _is_gate_loosened(run_dir: Path, type_slug: str) -> bool:
+    """FR-5: whether this run's own researcher has approved collapsing
+    `type_slug`'s review gate into a notification (`kernel/gate_trust`).
+    Read directly off the manifest rather than importing the kernel module,
+    keeping the store layer's chokepoints self-contained."""
+    manifest_path = run_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        return False
+    manifest = yaml.safe_load(manifest_path.read_text()) or {}
+    return type_slug in (manifest.get("loosened_gates") or [])
+
+
 def is_gap_register_accepted(run_dir: Path) -> bool:
     """AD-9: the Candidate-Direction generation window keys off run-level
     Gap Register acceptance rather than per-cluster derived state (unlike
@@ -494,7 +506,12 @@ def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) ->
 
     with acquire_run_lock(run_dir / ".lock"):
         meta = _read_meta(meta_path)
-        if meta["status"] != "reviewed":
+        # FR-5: an approved gate-loosening collapses the mandatory review
+        # step into a notification — accept may proceed straight from
+        # 'draft'. Until that approval is recorded, the gate stays at full
+        # strictness (still requires 'reviewed').
+        gate_loosened = meta["status"] == "draft" and _is_gate_loosened(run_dir, type_slug)
+        if meta["status"] != "reviewed" and not gate_loosened:
             raise ArtifactError(
                 f"cannot accept artifact {art_id} in status '{meta['status']}'; "
                 "expected 'reviewed' (FR-10: draft -> reviewed -> accepted)"
@@ -521,6 +538,12 @@ def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) ->
             "artifact_event",
             {"kind": "accepted", "artifact_type": type_slug, "artifact_id": art_id, "version": new_version},
         )
+        if gate_loosened:
+            append_event(
+                run_dir,
+                "gate_event",
+                {"kind": "gate_loosening_notification", "artifact_type": type_slug, "artifact_id": art_id},
+            )
         if type_slug == GAP_REGISTER_TYPE_SLUG:
             # PRD §7.1: an accepted Gap Register is MVP's terminal deliverable —
             # Decided is unreachable by construction since Propose/Decide don't

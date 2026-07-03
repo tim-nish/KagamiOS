@@ -642,6 +642,49 @@ def test_metrics_provisional_count_reports_zero_with_no_provisional_artifacts(tm
     assert result == {"ok": True, "provisional_count": 0}
 
 
+def test_gate_propose_and_approve_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-gate-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-gate-test"
+    base_fields = {
+        "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": "",
+    }
+    dossier = create_artifact(run_dir, "cluster-dossier", base_fields, sections={"evolution": "x"})
+
+    exit_code = main(["gate", "propose", "--run-id", "run-gate-test", "--type", "cluster-dossier"])
+    propose_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert propose_out["ok"] is True
+    assert "statistic" in propose_out
+
+    exit_code = main(["gate", "propose", "--run-id", "run-gate-test", "--type", "gap-register"])
+    refused_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert refused_out["ok"] is False
+
+    exit_code = main(["accept", "--run-id", "run-gate-test", "--type", "cluster-dossier",
+                       "--art-id", dossier["id"], "--summary", "\n".join(f"l{i}" for i in range(6))])
+    still_strict_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert still_strict_out["ok"] is False
+
+    exit_code = main(["gate", "approve", "--run-id", "run-gate-test", "--type", "cluster-dossier"])
+    approve_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert approve_out["ok"] is True
+    assert approve_out["loosened"] is True
+
+    exit_code = main(["accept", "--run-id", "run-gate-test", "--type", "cluster-dossier",
+                       "--art-id", dossier["id"], "--summary", "\n".join(f"l{i}" for i in range(6))])
+    accepted_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert accepted_out["ok"] is True
+
+
 def test_synthesize_write_and_validate_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import accept_artifact, create_artifact, review_artifact
 

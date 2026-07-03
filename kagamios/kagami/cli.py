@@ -23,6 +23,7 @@ from kagami.kernel.deepen import claim_cluster_sections
 from kagami.kernel.dossier import DossierError, mark_representative_paper_read, validate_deepen_exit
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
+from kagami.kernel.gate_trust import GateTrustError, approve_gate_loosening, propose_gate_loosening
 from kagami.kernel.historian import HistorianError, historian_write
 from kagami.kernel.locate import (
     LocateError,
@@ -40,6 +41,7 @@ from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_sk
 from kagami.kernel.state_machine import StateMachineError, enter_state
 from kagami.kernel.synthesize import SynthesizeError, synthesize_write, validate_landscape_synthesis
 from kagami.paths import resolve_output_root
+from kagami.registry import RegistryError
 from kagami.schema_version import SchemaVersionError
 from kagami.store import ledger
 from kagami.store.artifact import ArtifactError, accept_artifact, count_provisional, review_artifact, scan
@@ -311,6 +313,22 @@ def _cmd_budgets_check_exhaustion(args: argparse.Namespace) -> dict:
     try:
         return detect_budget_exhaustion(run_dir, args.cluster_id, args.papers_read_count)
     except DepthBudgetError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_gate_propose(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return propose_gate_loosening(run_dir, args.type)
+    except (GateTrustError, RegistryError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_gate_approve(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return approve_gate_loosening(run_dir, args.type)
+    except (GateTrustError, RegistryError) as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -605,6 +623,19 @@ def build_parser() -> argparse.ArgumentParser:
     summary_sufficiency_parser = metrics_subparsers.add_parser("summary-sufficiency")
     summary_sufficiency_parser.add_argument("--run-id", dest="run_id", required=True)
     summary_sufficiency_parser.set_defaults(func=_cmd_metrics_summary_sufficiency)
+
+    gate_parser = subparsers.add_parser("gate")
+    gate_subparsers = gate_parser.add_subparsers(dest="gate_command", required=True)
+
+    gate_propose_parser = gate_subparsers.add_parser("propose")
+    gate_propose_parser.add_argument("--run-id", dest="run_id", required=True)
+    gate_propose_parser.add_argument("--type", dest="type", required=True)
+    gate_propose_parser.set_defaults(func=_cmd_gate_propose)
+
+    gate_approve_parser = gate_subparsers.add_parser("approve")
+    gate_approve_parser.add_argument("--run-id", dest="run_id", required=True)
+    gate_approve_parser.add_argument("--type", dest="type", required=True)
+    gate_approve_parser.set_defaults(func=_cmd_gate_approve)
 
     return parser
 
