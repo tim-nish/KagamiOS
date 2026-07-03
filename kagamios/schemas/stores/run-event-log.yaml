@@ -1,0 +1,19 @@
+type: run-event-log
+schema_version: 1
+fields:
+  id:
+    type: string
+    profile: minimal
+    author: ai
+  family:
+    type: enum[llm_call, retrieval, artifact_event, question_event, human_edit, frontier_decision, gate_event, budget_event, state_transition, terminal_event]
+    profile: minimal
+    author: ai
+  timestamp:
+    type: date
+    profile: minimal
+    author: ai
+  payload:
+    type: map
+    profile: minimal
+    author: ai

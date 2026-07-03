@@ -1,0 +1,23 @@
+type: run-manifest
+schema_version: 1
+fields:
+  id:
+    type: string
+    profile: minimal
+    author: ai
+  rooting_intuition_note:
+    type: ref
+    profile: minimal
+    author: ai
+  derived_state_per_cluster:
+    type: map
+    profile: minimal
+    author: ai
+  budget_counters:
+    type: map
+    profile: minimal
+    author: ai
+  monitoring_config:
+    type: map
+    profile: full
+    author: human

@@ -1,0 +1,13 @@
+type: intuition-note
+schema_version: 1
+generation_window: entry
+fields:
+  raw_capture:
+    type: text
+    profile: minimal
+    author: human
+    in_summary: true
+  entry_mode:
+    type: enum[intuition-first, paper-first, field-first, problem-first, tool-first]
+    profile: minimal
+    author: ai

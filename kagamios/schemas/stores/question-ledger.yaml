@@ -1,0 +1,39 @@
+type: question-ledger
+schema_version: 1
+fields:
+  id:
+    type: string
+    profile: minimal
+    author: ai
+  target:
+    type: ref
+    profile: minimal
+    author: ai
+  leverage_class:
+    type: string
+    profile: minimal
+    author: ai
+  form:
+    type: enum[confirm, menu, rank, free-text]
+    profile: minimal
+    author: ai
+  answer:
+    type: text
+    profile: minimal
+    author: human
+  default_applied:
+    type: bool
+    profile: minimal
+    author: ai
+  consumed_by:
+    type: list[ref]
+    profile: minimal
+    author: ai
+  asked_at:
+    type: date
+    profile: minimal
+    author: ai
+  answered_at:
+    type: date
+    profile: minimal
+    author: ai

@@ -1,0 +1,11 @@
+schema_version: 1
+states: [frame, map, deepen, synthesize, locate, propose]
+decide_gate: decide
+terminals: [dissolved, dormant, decided]
+backward_transitions:
+  - {from: deepen, to: frame}
+  - {from: synthesize, to: map}
+  - {from: locate, to: deepen}
+  - {from: locate, to: map}
+  - {from: propose, to: locate}
+  - {from: decided, to: propose}

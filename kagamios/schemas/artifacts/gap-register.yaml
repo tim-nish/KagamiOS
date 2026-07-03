@@ -1,0 +1,33 @@
+type: gap-register
+schema_version: 1
+generation_window: locate
+fields:
+  statement:
+    type: text
+    profile: minimal
+    author: ai-drafted-human-confirmed
+    in_summary: true
+  evidence_of_absence:
+    type: text
+    profile: minimal
+    author: ai
+  why_does_this_gap_exist:
+    type: enum[hard, uninteresting, impossible, recently_filled, genuinely_open]
+    profile: minimal
+    author: ai-drafted-human-confirmed
+    leverage: [L4]
+  closest_researcher:
+    type: ref
+    profile: full
+    author: ai
+  meaningful_to_me:
+    type: enum[meaningful, real-but-not-mine, suspicious]
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+    leverage: [L6]
+    audit_exempt: permanent
+  micro_probe_evidence:
+    type: ref
+    profile: full
+    author: human

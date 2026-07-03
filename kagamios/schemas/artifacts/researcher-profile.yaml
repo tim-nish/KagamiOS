@@ -1,0 +1,24 @@
+type: researcher-profile
+schema_version: 1
+generation_window: entry
+fields:
+  taste_notes:
+    type: list[text]
+    profile: full
+    author: ai-drafted-human-confirmed
+  skills:
+    type: list[string]
+    profile: full
+    author: human
+  constraints:
+    type: list[string]
+    profile: minimal
+    author: human
+  risk_appetite:
+    type: enum[conservative, balanced, aggressive]
+    profile: full
+    author: human
+  time_horizon:
+    type: string
+    profile: full
+    author: human
