@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from kagami.events import append_event
+from kagami.registry import ROLES
 from kagami.store.locking import acquire_run_lock
 
 
@@ -48,6 +49,11 @@ def report_llm_call(
         raise ReportError("call_id must be non-empty (AD-26: idempotency guard)")
     if not role or not role.strip():
         raise ReportError("an 'llm_call' report must carry a non-null role tag (FR-29)")
+    if role not in ROLES:
+        raise ReportError(
+            f"'{role}' is not a recognized role; must be one of {ROLES} "
+            "(AD-4/AD-26: self-declared role must be schema-registry-enumerated)"
+        )
 
     with acquire_run_lock(run_dir / ".lock"):
         if call_id in _reported_call_ids(run_dir):

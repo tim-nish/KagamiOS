@@ -76,3 +76,20 @@ def test_a_missing_role_is_refused_per_fr29(tmp_path):
     run_dir = _open(tmp_path)
     with pytest.raises(ReportError):
         report_llm_call(run_dir, "", "paper_card_extraction", "cheap-model", 1, 1, False, "call-1")
+
+
+def test_an_unrecognized_role_is_refused_not_accepted_as_free_text(tmp_path):
+    run_dir = _open(tmp_path)
+    with pytest.raises(ReportError):
+        report_llm_call(
+            run_dir, "not-a-real-role", "paper_card_extraction", "cheap-model", 1, 1, False, "call-1"
+        )
+
+
+def test_every_ad4_role_plus_interviewer_is_accepted(tmp_path):
+    run_dir = _open(tmp_path)
+    for i, role in enumerate(("scout", "cartographer", "historian", "skeptic", "worker", "interviewer")):
+        result = report_llm_call(
+            run_dir, role, "paper_card_extraction", "cheap-model", 1, 1, False, f"call-{i}"
+        )
+        assert result["ok"] is True

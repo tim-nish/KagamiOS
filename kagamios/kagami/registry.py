@@ -31,6 +31,12 @@ STATES = ("frame", "map", "deepen", "synthesize", "locate", "propose")
 DECIDE_GATE = "decide"
 VALID_GENERATION_WINDOWS = frozenset(STATES) | {"entry", "any", DECIDE_GATE}
 
+# AD-4: the named roles plus the `worker` drafting role, plus the
+# Interviewer (the orchestrating skill itself, per AD-4 "the main thread
+# is the Interviewer") — the full set a `--role` argument may declare,
+# whether on a content write or an FR-49/AD-26 `llm_call` report.
+ROLES = ("scout", "cartographer", "historian", "skeptic", "worker", "interviewer")
+
 
 class RegistryError(Exception):
     pass
