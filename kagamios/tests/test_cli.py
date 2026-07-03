@@ -37,6 +37,43 @@ def test_run_open_prints_single_line_json(tmp_path, monkeypatch, capsys):
     json.loads(out)
 
 
+def test_scan_subcommand_reports_no_change_then_a_new_version(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-scan-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-scan-test"
+    result = create_artifact(
+        run_dir,
+        "gap-register",
+        {
+            "depends_on": [],
+            "elicited_from": [],
+            "decided_by": "ai-drafted/human-reviewed",
+            "summary": "s",
+        },
+        sections={"statement": "draft"},
+    )
+
+    exit_code = main(["scan", "--run-id", "run-scan-test", "--type", "gap-register", "--art-id", result["id"]])
+    unchanged = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert unchanged == {"ok": True, "changed": False, "version": 1}
+
+    art_dir = run_dir / "artifacts" / "gap-register" / result["id"]
+    (art_dir / "current.md").write_text(
+        (art_dir / "current.md").read_text().replace("draft", "researcher edit")
+    )
+
+    exit_code = main(["scan", "--run-id", "run-scan-test", "--type", "gap-register", "--art-id", result["id"]])
+    changed = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert changed["changed"] is True
+    assert changed["version"] == 2
+
+
 def test_schema_version_refusal_exits_nonzero(tmp_path, monkeypatch, capsys):
     import yaml
 
