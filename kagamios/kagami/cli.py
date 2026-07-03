@@ -43,6 +43,7 @@ from kagami.kernel.locate import (
     validate_locate_exit,
 )
 from kagami.kernel.metrics import count_full_pull_after_summary
+from kagami.kernel.monitor import MonitorError, mark_dormant, monitor_sweep
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
 from kagami.kernel.scout import CorpusAccessError, search_corpus
@@ -365,6 +366,22 @@ def _cmd_dissolution_check_terminal(args: argparse.Namespace) -> dict:
     return check_dissolution_terminal(run_dir)
 
 
+def _cmd_monitor_mark_dormant(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return mark_dormant(run_dir, args.revival_conditions)
+    except (MonitorError, StateMachineError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_monitor_sweep(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return monitor_sweep(run_dir)
+    except MonitorError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _cmd_gate_propose(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     try:
@@ -438,6 +455,20 @@ def build_parser() -> argparse.ArgumentParser:
     state_derive_parser = state_subparsers.add_parser("derive")
     state_derive_parser.add_argument("--run-id", dest="run_id", required=True)
     state_derive_parser.set_defaults(func=_cmd_state_derive)
+
+    monitor_parser = subparsers.add_parser("monitor")
+    monitor_subparsers = monitor_parser.add_subparsers(dest="monitor_command", required=True)
+
+    monitor_mark_dormant_parser = monitor_subparsers.add_parser("mark-dormant")
+    monitor_mark_dormant_parser.add_argument("--run-id", dest="run_id", required=True)
+    monitor_mark_dormant_parser.add_argument(
+        "--revival-conditions", dest="revival_conditions", required=True
+    )
+    monitor_mark_dormant_parser.set_defaults(func=_cmd_monitor_mark_dormant)
+
+    monitor_sweep_parser = monitor_subparsers.add_parser("sweep")
+    monitor_sweep_parser.add_argument("--run-id", dest="run_id", required=True)
+    monitor_sweep_parser.set_defaults(func=_cmd_monitor_sweep)
 
     budgets_parser = subparsers.add_parser("budgets")
     budgets_subparsers = budgets_parser.add_subparsers(dest="budgets_command", required=True)

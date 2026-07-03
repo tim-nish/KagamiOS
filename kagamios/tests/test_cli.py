@@ -575,6 +575,58 @@ def test_state_derive_reports_modal_cluster_state_through_cli(tmp_path, monkeypa
     assert result["nominal_state"] == "frame"
 
 
+def test_monitor_mark_dormant_and_sweep_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact, mark_dependents_stale, pin_dependency
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-monitor-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-monitor-test"
+    main(
+        ["budgets", "set", "--run-id", "run-monitor-test", "--clusters", json.dumps(["cluster-1"]),
+         "--papers-per-cluster", "5", "--time-horizon", "1 week"]
+    )
+    capsys.readouterr()
+
+    base_fields = {
+        "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": "",
+    }
+    dep = create_artifact(run_dir, "field-map", base_fields, sections={"cluster_name": "x"})
+    dossier = create_artifact(
+        run_dir, "cluster-dossier", {**base_fields, "depends_on": [pin_dependency(dep["id"], 1)]},
+        sections={"evolution": "x", "frontier": "y"},
+    )
+
+    exit_code = main(
+        ["monitor", "mark-dormant", "--run-id", "run-monitor-test",
+         "--revival-conditions", "revisit if a related paper appears"]
+    )
+    dormant_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert dormant_out["ok"] is True
+
+    exit_code = main(["monitor", "sweep", "--run-id", "run-monitor-test"])
+    swept_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert swept_out == {"ok": True, "swept": True, "reopened": False, "stale_artifact_ids": []}
+
+    mark_dependents_stale(run_dir, dep["id"], dependency_new_version=2)
+
+    exit_code = main(["monitor", "sweep", "--run-id", "run-monitor-test"])
+    reopened_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert reopened_out["reopened"] is True
+    assert reopened_out["affected_state"] == "deepen"
+    assert reopened_out["stale_artifact_ids"] == [dossier["id"]]
+
+    # confirm the run is genuinely back at 'deepen': its nominal-next transition is now legal
+    exit_code = main(["state", "enter", "--run-id", "run-monitor-test", "--state", "synthesize"])
+    enter_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert enter_out["violation"] is None
+
+
 def test_cartographer_draft_then_create_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-cartographer-test"])
