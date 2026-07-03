@@ -85,12 +85,11 @@ def test_attempt_ai_write_refused_for_schema_human_field_and_logs_event(tmp_path
     with pytest.raises(RejectedWriteError):
         attempt_ai_write(tmp_path, "gap-register", result["id"], "meaningful_to_me", "suspicious")
 
-    events = (tmp_path / "events.jsonl").read_text().splitlines()
-    assert len(events) == 1
-    event = json.loads(events[0])
-    assert event["family"] == "artifact_event"
-    assert event["kind"] == "rejected_write"
-    assert event["field"] == "meaningful_to_me"
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    rejected = [e for e in events if e["kind"] == "rejected_write"]
+    assert len(rejected) == 1
+    assert rejected[0]["family"] == "artifact_event"
+    assert rejected[0]["field"] == "meaningful_to_me"
 
 
 def test_attempt_ai_write_succeeds_for_ai_authored_section(tmp_path):

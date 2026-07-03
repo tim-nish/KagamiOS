@@ -3,6 +3,7 @@ import json
 import sys
 
 from kagami.kernel.metrics import count_full_pull_after_summary
+from kagami.kernel.profile import validate_minimal_profile
 from kagami.paths import resolve_output_root
 from kagami.schema_version import SchemaVersionError
 from kagami.store import ledger
@@ -21,6 +22,11 @@ def _cmd_run_open(args: argparse.Namespace) -> dict:
         return open_run(run_id=args.run_id)
     except SchemaVersionError as exc:
         return {"ok": False, "error": str(exc)}
+
+
+def _cmd_run_validate_profile(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return validate_minimal_profile(run_dir)
 
 
 def _cmd_scan(args: argparse.Namespace) -> dict:
@@ -92,6 +98,10 @@ def build_parser() -> argparse.ArgumentParser:
     open_parser = run_subparsers.add_parser("open")
     open_parser.add_argument("--run-id", dest="run_id", default=None)
     open_parser.set_defaults(func=_cmd_run_open)
+
+    validate_profile_parser = run_subparsers.add_parser("validate-profile")
+    validate_profile_parser.add_argument("--run-id", dest="run_id", required=True)
+    validate_profile_parser.set_defaults(func=_cmd_run_validate_profile)
 
     scan_parser = subparsers.add_parser("scan")
     scan_parser.add_argument("--run-id", dest="run_id", required=True)

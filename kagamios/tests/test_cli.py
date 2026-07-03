@@ -37,6 +37,17 @@ def test_run_open_prints_single_line_json(tmp_path, monkeypatch, capsys):
     json.loads(out)
 
 
+def test_run_validate_profile_reports_ok_with_no_artifacts(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-validate-test"])
+    capsys.readouterr()
+
+    exit_code = main(["run", "validate-profile", "--run-id", "run-validate-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result == {"ok": True, "violations": []}
+
+
 def test_scan_subcommand_reports_no_change_then_a_new_version(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 

@@ -43,7 +43,8 @@ def test_read_outside_consumption_map_is_refused(tmp_path):
     with pytest.raises(ConsumptionError):
         read_artifact(tmp_path, "frame", "gap-register", art["id"], "summary")
 
-    assert not (tmp_path / "events.jsonl").exists() or (tmp_path / "events.jsonl").read_text() == ""
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert not any(e["family"] == "retrieval" for e in events)
 
 
 def test_read_rejects_unknown_resolution(tmp_path):

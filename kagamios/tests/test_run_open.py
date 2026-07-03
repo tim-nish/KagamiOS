@@ -17,7 +17,10 @@ def test_open_run_creates_expected_scaffold(tmp_path):
     assert (run_dir / ".lease").is_file()
     assert (run_dir / "manifest.yaml").is_file()
     assert (run_dir / "events.jsonl").is_file()
-    assert (run_dir / "events.jsonl").read_text() == ""
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    assert len(events) == 1
+    assert events[0]["family"] == "state_transition"
+    assert events[0]["kind"] == "run_opened"
 
 
 def test_open_run_manifest_is_stamped_with_schema_version(tmp_path):
@@ -54,3 +57,8 @@ def test_reopening_existing_run_refreshes_lease_without_recreating_manifest(tmp_
 
     assert second["created"] is False
     assert first["run_id"] == second["run_id"]
+
+    run_dir = output_root / "runs" / "run-test4"
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    kinds = [e["kind"] for e in events]
+    assert kinds == ["run_opened", "run_resumed"]

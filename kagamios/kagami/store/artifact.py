@@ -130,6 +130,9 @@ def create_artifact(
                 "content_hash": _content_hash(doc_text),
             },
         )
+        append_event(
+            run_dir, "artifact_event", {"kind": "created", "artifact_type": type_slug, "artifact_id": art_id}
+        )
 
     return {"ok": True, "id": art_id, "path": str(art_dir), "version": 1}
 
@@ -156,6 +159,17 @@ def claim_section(run_dir: Path, type_slug: str, art_id: str, section_id: str, h
             return False
         claims[section_id] = holder
         _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "artifact_event",
+            {
+                "kind": "section_claimed",
+                "artifact_type": type_slug,
+                "artifact_id": art_id,
+                "section_id": section_id,
+                "holder": holder,
+            },
+        )
         return True
 
 
@@ -169,28 +183,27 @@ def attempt_ai_write(
 ) -> dict:
     registry = registry or load_registry()
     schema = registry.get_artifact_schema(type_slug)
-
-    field_spec = schema.fields.get(section_title)
-    if field_spec is not None and field_spec.author == "human":
-        append_event(
-            run_dir,
-            "artifact_event",
-            {
-                "kind": "rejected_write",
-                "artifact_type": type_slug,
-                "artifact_id": art_id,
-                "field": section_title,
-                "reason": "schema declares author: human (FR-31)",
-            },
-        )
-        raise RejectedWriteError(
-            f"AI write to '{section_title}' on {type_slug} refused: schema declares author: human (FR-31)"
-        )
-
     art_dir = _artifact_dir(run_dir, type_slug, art_id)
     meta_path = art_dir / "meta.yaml"
 
     with acquire_run_lock(run_dir / ".lock"):
+        field_spec = schema.fields.get(section_title)
+        if field_spec is not None and field_spec.author == "human":
+            append_event(
+                run_dir,
+                "artifact_event",
+                {
+                    "kind": "rejected_write",
+                    "artifact_type": type_slug,
+                    "artifact_id": art_id,
+                    "field": section_title,
+                    "reason": "schema declares author: human (FR-31)",
+                },
+            )
+            raise RejectedWriteError(
+                f"AI write to '{section_title}' on {type_slug} refused: schema declares author: human (FR-31)"
+            )
+
         meta = _read_meta(meta_path)
         frontmatter, sections = parse_document((art_dir / "current.md").read_text())
 
@@ -203,6 +216,17 @@ def attempt_ai_write(
         if section_meta["author"] in HUMAN_TOUCHED_AUTHOR_CLASSES:
             diff_path = art_dir / f"proposed-diff-{mint_id('pd-')}.md"
             atomic_write(diff_path, new_body)
+            append_event(
+                run_dir,
+                "artifact_event",
+                {
+                    "kind": "proposed_diff_quarantined",
+                    "artifact_type": type_slug,
+                    "artifact_id": art_id,
+                    "field": section_title,
+                    "quarantined_as": str(diff_path),
+                },
+            )
             return {
                 "ok": False,
                 "quarantined_as": str(diff_path),
@@ -215,6 +239,11 @@ def attempt_ai_write(
         section_meta["content_hash"] = _content_hash(new_body)
         section_meta["author"] = "ai"
         _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "artifact_event",
+            {"kind": "ai_write", "artifact_type": type_slug, "artifact_id": art_id, "field": section_title},
+        )
         return {"ok": True}
 
 
@@ -251,6 +280,17 @@ def scan(run_dir: Path, type_slug: str, art_id: str) -> dict:
         meta["current_version"] = new_version
         meta["content_hash"] = _content_hash(new_text)
         _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "human_edit",
+            {
+                "kind": "scan_detected_change",
+                "artifact_type": type_slug,
+                "artifact_id": art_id,
+                "version": new_version,
+                "changed_sections": changed_sections,
+            },
+        )
 
         return {
             "ok": True,
@@ -291,6 +331,11 @@ def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) ->
         meta["status"] = "accepted"
         meta["content_hash"] = _content_hash(new_text)
         _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "artifact_event",
+            {"kind": "accepted", "artifact_type": type_slug, "artifact_id": art_id, "version": new_version},
+        )
 
     return {"ok": True, "version": new_version}
 
@@ -330,6 +375,16 @@ def mark_dependents_stale(run_dir: Path, dependency_id: str, dependency_new_vers
                 frontmatter["status"] = "stale"
                 atomic_write(current_path, render_document(frontmatter, sections))
                 staled.append(meta["id"])
+                append_event(
+                    run_dir,
+                    "artifact_event",
+                    {
+                        "kind": "staled",
+                        "artifact_id": meta["id"],
+                        "dependency_id": dependency_id,
+                        "dependency_new_version": dependency_new_version,
+                    },
+                )
 
     return staled
 
@@ -358,6 +413,16 @@ def pin_elicited_from(run_dir: Path, type_slug: str, art_id: str, ledger_ref: st
         meta["current_version"] = new_version
         meta["content_hash"] = _content_hash(new_text)
         _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "artifact_event",
+            {
+                "kind": "elicited_from_pinned",
+                "artifact_type": type_slug,
+                "artifact_id": art_id,
+                "ledger_ref": ledger_ref,
+            },
+        )
 
     return {"ok": True, "version": new_version, "changed": True}
 
@@ -383,6 +448,11 @@ def flag_provisional(run_dir: Path, type_slug: str, art_id: str) -> dict:
         meta["status"] = "provisional"
         meta["content_hash"] = _content_hash(new_text)
         _write_meta(meta_path, meta)
+        append_event(
+            run_dir,
+            "artifact_event",
+            {"kind": "flagged_provisional", "artifact_type": type_slug, "artifact_id": art_id},
+        )
 
     return {"ok": True, "version": new_version}
 
