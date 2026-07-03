@@ -1,0 +1,22 @@
+type: cluster-dossier
+schema_version: 1
+generation_window: deepen
+fields:
+  evolution:
+    type: text
+    profile: minimal
+    author: ai
+    in_summary: true
+  representative_papers:
+    type: list[object]
+    profile: minimal
+    author: ai-drafted-human-confirmed
+    leverage: [L3]
+  people_and_venues:
+    type: list[ref]
+    profile: full
+    author: ai
+  frontier:
+    type: text
+    profile: full
+    author: ai

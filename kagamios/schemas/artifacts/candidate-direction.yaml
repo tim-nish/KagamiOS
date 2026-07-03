@@ -1,0 +1,51 @@
+type: candidate-direction
+schema_version: 1
+generation_window: propose
+fields:
+  direction:
+    type: text
+    profile: minimal
+    author: ai
+    in_summary: true
+  supporting_evidence:
+    type: list[ref]
+    profile: minimal
+    author: ai
+    comparison_axis: true
+  defining_papers:
+    type: list[ref]
+    profile: minimal
+    author: ai
+  competing_siblings:
+    type: list[ref]
+    profile: minimal
+    author: ai
+  requirements:
+    type: text
+    profile: minimal
+    author: ai
+    comparison_axis: true
+  fit_notes:
+    type: list[text]
+    profile: full
+    author: ai-drafted-human-confirmed
+  why_now:
+    type: text
+    profile: minimal
+    author: ai
+    comparison_axis: true
+  red_team_notes:
+    type: text
+    profile: minimal
+    author: ai
+    comparison_axis: true
+  origin:
+    type: enum[ai-generated, human-added]
+    profile: minimal
+    author: ai
+  disposition:
+    type: enum[selected, parked, rejected]
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+    audit_exempt: permanent

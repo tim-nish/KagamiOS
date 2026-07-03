@@ -1,0 +1,49 @@
+type: field-map
+schema_version: 1
+generation_window: map
+fields:
+  cluster_name:
+    type: string
+    profile: minimal
+    author: human
+    in_summary: true
+  cluster_definition:
+    type: text
+    profile: minimal
+    author: ai-drafted-human-confirmed
+  boundary_notes:
+    type: text
+    profile: full
+    author: ai-drafted-human-confirmed
+  key_groups:
+    type: list[ref]
+    profile: full
+    author: ai
+  recency_profile:
+    type: text
+    profile: full
+    author: ai
+  scope:
+    type: enum[deep, background, out]
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+    leverage: [L2, L4]
+    audit_exempt: permanent
+  reading_priority:
+    type: enum[high, medium, low]
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+  inter_cluster_relations:
+    type: list[object]
+    profile: full
+    author: ai
+  venues:
+    type: list[ref]
+    profile: full
+    author: ai
+  alternative_cut:
+    type: ref
+    profile: minimal
+    author: ai

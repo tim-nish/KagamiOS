@@ -1,0 +1,59 @@
+type: direction-decision
+schema_version: 1
+generation_window: decide
+fields:
+  selected_directions:
+    type: list[ref]
+    profile: minimal
+    author: human
+    in_summary: true
+  why_this_over_others:
+    type: text
+    profile: minimal
+    author: human
+  unprimed_lean:
+    type: text
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+    audit_exempt: permanent
+  unprimed_vs_final_diff:
+    type: text
+    profile: minimal
+    author: ai
+  parked_candidates:
+    type: list[object]
+    profile: full
+    author: ai-drafted-human-confirmed
+  rejected_candidates:
+    type: list[object]
+    profile: full
+    author: ai-drafted-human-confirmed
+  spawned_opportunities:
+    type: list[ref]
+    profile: full
+    author: ai
+  confidence_checklist_audit:
+    type: ref
+    profile: minimal
+    author: ai
+  probe_before_commit_flags:
+    type: list[ref]
+    profile: full
+    author: ai
+  falsifiable_claims:
+    type: list[text]
+    profile: minimal
+    author: ai
+  handoff_bundle:
+    type: ref
+    profile: minimal
+    author: ai
+  signed_by:
+    type: string
+    profile: minimal
+    author: human
+  signed_at:
+    type: date
+    profile: minimal
+    author: human

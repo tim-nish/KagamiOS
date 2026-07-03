@@ -1,0 +1,17 @@
+type: landscape-synthesis
+schema_version: 1
+generation_window: synthesize
+fields:
+  competing_approaches_matrix:
+    type: table
+    profile: full
+    author: ai
+  trend_directions:
+    type: list[text]
+    profile: full
+    author: ai
+  solved_open_table:
+    type: list[object]
+    profile: minimal
+    author: ai-drafted-human-confirmed
+    in_summary: true

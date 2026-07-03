@@ -1,0 +1,43 @@
+schema_version: 1
+fields:
+  id:
+    type: string
+    profile: minimal
+    author: ai
+  type:
+    type: string
+    profile: minimal
+    author: ai
+  version:
+    type: integer
+    profile: minimal
+    author: ai
+  status:
+    type: enum[draft, reviewed, accepted, stale, superseded, provisional]
+    profile: minimal
+    author: ai
+  depends_on:
+    type: list[ref]
+    profile: minimal
+    author: ai
+  elicited_from:
+    type: list[ref]
+    profile: minimal
+    author: ai
+  decided_by:
+    type: enum[human, ai-drafted/human-reviewed]
+    profile: minimal
+    author: ai
+  summary:
+    type: text
+    profile: minimal
+    author: ai
+    in_summary: true
+  created:
+    type: date
+    profile: minimal
+    author: ai
+  updated:
+    type: date
+    profile: minimal
+    author: ai

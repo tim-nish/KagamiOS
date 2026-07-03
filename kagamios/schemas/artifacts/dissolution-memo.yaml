@@ -1,0 +1,25 @@
+type: dissolution-memo
+schema_version: 1
+generation_window: any
+fields:
+  intuition_summary:
+    type: text
+    profile: minimal
+    author: ai
+    in_summary: true
+  what_dissolved_it:
+    type: list[ref]
+    profile: minimal
+    author: ai
+  what_was_learned:
+    type: text
+    profile: minimal
+    author: human
+  revival_conditions:
+    type: text
+    profile: full
+    author: human
+  salvaged_fragments:
+    type: list[ref]
+    profile: full
+    author: ai

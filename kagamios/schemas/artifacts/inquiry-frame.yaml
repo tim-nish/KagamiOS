@@ -1,0 +1,37 @@
+type: inquiry-frame
+schema_version: 1
+generation_window: frame
+fields:
+  intuition_restated:
+    type: text
+    profile: minimal
+    author: ai-drafted-human-confirmed
+    in_summary: true
+  in_scope_readings:
+    type: list[ref]
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+    leverage: [L2]
+    audit_exempt: permanent
+  exclusions:
+    type: list[ref]
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+    leverage: [L2]
+    audit_exempt: permanent
+  unprimed_hunch:
+    type: text
+    profile: minimal
+    author: human
+    unknown_class_hint: human-only
+    audit_exempt: permanent
+  motivation:
+    type: text
+    profile: full
+    author: human
+  hard_constraints:
+    type: list[string]
+    profile: minimal
+    author: human

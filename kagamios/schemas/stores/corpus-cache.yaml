@@ -1,0 +1,28 @@
+type: corpus-cache
+schema_version: 1
+fields:
+  id:
+    type: string
+    profile: minimal
+    author: ai
+  bibliographic_identity:
+    type: ref
+    profile: minimal
+    author: ai
+  contribution_line:
+    type: text
+    profile: minimal
+    author: ai
+    in_summary: true
+  method_class:
+    type: string
+    profile: minimal
+    author: ai
+  evidence_type:
+    type: string
+    profile: minimal
+    author: ai
+  key_claims:
+    type: list[object]
+    profile: full
+    author: ai

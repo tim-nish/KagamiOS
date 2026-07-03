@@ -1,0 +1,15 @@
+type: entity-registry
+schema_version: 1
+fields:
+  id:
+    type: string
+    profile: minimal
+    author: ai
+  entity_type:
+    type: enum[paper, person, group, venue]
+    profile: minimal
+    author: ai
+  relations:
+    type: list[object]
+    profile: minimal
+    author: ai
