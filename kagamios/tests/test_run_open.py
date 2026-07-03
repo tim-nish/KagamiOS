@@ -3,6 +3,7 @@ import json
 import yaml
 
 from kagami.schema_version import CURRENT_SCHEMA_REGISTRY_VERSION
+from kagami.store.artifact import claim_section, create_artifact
 from kagami.store.run import open_run
 
 
@@ -62,3 +63,38 @@ def test_reopening_existing_run_refreshes_lease_without_recreating_manifest(tmp_
     events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
     kinds = [e["kind"] for e in events]
     assert kinds == ["run_opened", "run_resumed"]
+
+
+def test_reopening_a_run_reaps_claims_from_the_crashed_prior_session(tmp_path):
+    """AD-10/AD-15: a worker's session crashes mid-claim; reopening the run
+    reaps its expired claims rather than leaving the section wedged."""
+    output_root = tmp_path / "_kagami-output"
+    first = open_run(run_id="run-test5", output_root=output_root)
+    run_dir = output_root / "runs" / "run-test5"
+
+    dossier = create_artifact(
+        run_dir,
+        "cluster-dossier",
+        {
+            "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
+            "summary": "",
+        },
+        sections={"evolution": "x"},
+    )
+    art_dir = run_dir / "artifacts" / "cluster-dossier" / dossier["id"]
+    section_id = yaml.safe_load((art_dir / "meta.yaml").read_text())["sections"][0]["id"]
+
+    # The "crashed" worker claims a section under the first session's lease.
+    assert claim_section(run_dir, "cluster-dossier", dossier["id"], section_id, first["lease"]["holder"])
+
+    # Reopening mints a brand-new lease holder — the old claim is now stale.
+    second = open_run(run_id="run-test5", output_root=output_root)
+    assert second["reaped_claims"] == [
+        {"artifact_id": dossier["id"], "section_id": section_id, "previous_holder": first["lease"]["holder"]}
+    ]
+
+    meta = yaml.safe_load((art_dir / "meta.yaml").read_text())
+    assert meta["claims"] == {}
+
+    # The section is claimable again under the new session's holder.
+    assert claim_section(run_dir, "cluster-dossier", dossier["id"], section_id, second["lease"]["holder"])

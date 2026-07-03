@@ -19,12 +19,14 @@ from kagami.kernel.derived_state import (
     get_depth_budgets,
     set_depth_budgets,
 )
+from kagami.kernel.deepen import claim_cluster_sections
 from kagami.kernel.dossier import DossierError, mark_representative_paper_read, validate_deepen_exit
 from kagami.kernel.entry import EntryError, start_run_from_entry
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.historian import HistorianError, historian_write
 from kagami.kernel.metrics import count_full_pull_after_summary
 from kagami.kernel.profile import validate_minimal_profile
+from kagami.kernel.repair import apply_tier2_repair, repair_artifact
 from kagami.kernel.scout import CorpusAccessError, search_corpus
 from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_skeptic_critique, skeptic_write
 from kagami.kernel.state_machine import StateMachineError, enter_state
@@ -171,6 +173,23 @@ def _cmd_cartographer_create(args: argparse.Namespace) -> dict:
         return create_field_map_clusters(run_dir, chosen_cut, cuts, papers_by_id)
     except (CartographerError, ArtifactError) as exc:
         return {"ok": False, "error": str(exc)}
+
+
+def _cmd_deepen_claim(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    section_ids = json.loads(args.sections_json)
+    return claim_cluster_sections(run_dir, args.art_id, section_ids, args.holder)
+
+
+def _cmd_repair_check(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return repair_artifact(run_dir, args.type, args.art_id)
+
+
+def _cmd_repair_apply(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    section_fixes = json.loads(args.fixes_json)
+    return apply_tier2_repair(run_dir, args.type, args.art_id, section_fixes)
 
 
 def _cmd_skeptic_context(args: argparse.Namespace) -> dict:
@@ -339,6 +358,32 @@ def build_parser() -> argparse.ArgumentParser:
     frame_complete_parser.add_argument("--sections", dest="sections_json", required=True)
     frame_complete_parser.add_argument("--summary", dest="summary", required=True)
     frame_complete_parser.set_defaults(func=_cmd_frame_complete)
+
+    deepen_parser = subparsers.add_parser("deepen")
+    deepen_subparsers = deepen_parser.add_subparsers(dest="deepen_command", required=True)
+
+    deepen_claim_parser = deepen_subparsers.add_parser("claim")
+    deepen_claim_parser.add_argument("--run-id", dest="run_id", required=True)
+    deepen_claim_parser.add_argument("--art-id", dest="art_id", required=True)
+    deepen_claim_parser.add_argument("--sections", dest="sections_json", required=True)
+    deepen_claim_parser.add_argument("--holder", dest="holder", required=True)
+    deepen_claim_parser.set_defaults(func=_cmd_deepen_claim)
+
+    repair_parser = subparsers.add_parser("repair")
+    repair_subparsers = repair_parser.add_subparsers(dest="repair_command", required=True)
+
+    repair_check_parser = repair_subparsers.add_parser("check")
+    repair_check_parser.add_argument("--run-id", dest="run_id", required=True)
+    repair_check_parser.add_argument("--type", dest="type", required=True)
+    repair_check_parser.add_argument("--art-id", dest="art_id", required=True)
+    repair_check_parser.set_defaults(func=_cmd_repair_check)
+
+    repair_apply_parser = repair_subparsers.add_parser("apply")
+    repair_apply_parser.add_argument("--run-id", dest="run_id", required=True)
+    repair_apply_parser.add_argument("--type", dest="type", required=True)
+    repair_apply_parser.add_argument("--art-id", dest="art_id", required=True)
+    repair_apply_parser.add_argument("--fixes", dest="fixes_json", required=True)
+    repair_apply_parser.set_defaults(func=_cmd_repair_apply)
 
     skeptic_parser = subparsers.add_parser("skeptic")
     skeptic_subparsers = skeptic_parser.add_subparsers(dest="skeptic_command", required=True)

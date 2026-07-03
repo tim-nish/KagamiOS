@@ -173,6 +173,48 @@ def claim_section(run_dir: Path, type_slug: str, art_id: str, section_id: str, h
         return True
 
 
+def reap_expired_claims(run_dir: Path, current_holder: str) -> list[dict]:
+    """AD-10/AD-15: a claim carries its session lease id and expires with
+    it. Called at `kagami run open` — since every open mints a fresh lease
+    holder, any claim not held by the new holder belongs to a session that
+    never explicitly released it (most commonly a crash) and is reaped so
+    it never wedges a section forever.
+    """
+    artifacts_root = run_dir / "artifacts"
+    reaped = []
+    if not artifacts_root.exists():
+        return reaped
+
+    with acquire_run_lock(run_dir / ".lock"):
+        for meta_path in artifacts_root.glob("*/*/meta.yaml"):
+            meta = _read_meta(meta_path)
+            claims = meta.get("claims") or {}
+            expired = {sec_id: holder for sec_id, holder in claims.items() if holder != current_holder}
+            if not expired:
+                continue
+
+            for sec_id in expired:
+                del claims[sec_id]
+            _write_meta(meta_path, meta)
+
+            reaped_here = [
+                {"artifact_id": meta["id"], "section_id": sec_id, "previous_holder": holder}
+                for sec_id, holder in expired.items()
+            ]
+            reaped.extend(reaped_here)
+            append_event(
+                run_dir,
+                "artifact_event",
+                {
+                    "kind": "claims_reaped",
+                    "artifact_id": meta["id"],
+                    "section_ids": list(expired),
+                },
+            )
+
+    return reaped
+
+
 def attempt_ai_write(
     run_dir: Path,
     type_slug: str,

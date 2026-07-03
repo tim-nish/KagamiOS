@@ -198,6 +198,71 @@ def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsy
     assert result["violation"] is not None
 
 
+def test_deepen_claim_and_repair_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact, mark_dependents_stale, pin_dependency
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-deepen-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-deepen-test"
+    dep = create_artifact(
+        run_dir,
+        "field-map",
+        {"depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": ""},
+        sections={"cluster_name": "x"},
+    )
+    dossier = create_artifact(
+        run_dir,
+        "cluster-dossier",
+        {
+            "depends_on": [pin_dependency(dep["id"], 1)], "elicited_from": [],
+            "decided_by": "ai-drafted/human-reviewed", "summary": "",
+        },
+        sections={"evolution": "x", "frontier": "y"},
+    )
+    import yaml
+
+    section_ids = [
+        sm["id"] for sm in yaml.safe_load(
+            (run_dir / "artifacts" / "cluster-dossier" / dossier["id"] / "meta.yaml").read_text()
+        )["sections"]
+    ]
+
+    exit_code = main(
+        ["deepen", "claim", "--run-id", "run-deepen-test", "--art-id", dossier["id"],
+         "--sections", json.dumps(section_ids), "--holder", "worker-1"]
+    )
+    claim_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert claim_out["ok"] is True
+
+    exit_code = main(
+        ["repair", "check", "--run-id", "run-deepen-test", "--type", "cluster-dossier", "--art-id", dossier["id"]]
+    )
+    check_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert check_out["tier"] == 0
+    assert check_out["resolved"] is True
+
+    mark_dependents_stale(run_dir, dep["id"], dependency_new_version=2)
+    exit_code = main(
+        ["repair", "check", "--run-id", "run-deepen-test", "--type", "cluster-dossier", "--art-id", dossier["id"]]
+    )
+    check_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert check_out["tier"] == 1
+    assert check_out["needs_llm"]["operation_class"] == "tier1_plausibility_check"
+
+    exit_code = main(
+        ["repair", "apply", "--run-id", "run-deepen-test", "--type", "cluster-dossier", "--art-id", dossier["id"],
+         "--fixes", json.dumps({"frontier": "repaired content"})]
+    )
+    apply_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert apply_out["applied"] == ["frontier"]
+
+
 def test_skeptic_context_write_and_critique_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 
