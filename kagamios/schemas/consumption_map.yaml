@@ -1,0 +1,14 @@
+schema_version: 1
+# FR-15: per-state consumption map — docs-spec/07_runtime.md §3's read-set table.
+# A state may read only the artifact types listed for it here, at either
+# resolution (summary or full); reading a type outside this set is refused.
+# Ships complete for all six states plus Decide from v1 (AD-14 non-preclusion)
+# even though MVP's flow only exercises frame..locate.
+states:
+  frame: [intuition-note, researcher-profile]
+  map: [inquiry-frame, confidence-checklist]
+  deepen: [field-map, cluster-dossier, inquiry-frame]
+  synthesize: [cluster-dossier, field-map]
+  locate: [landscape-synthesis, cluster-dossier, field-map]
+  propose: [gap-register, landscape-synthesis, researcher-profile, cluster-dossier, confidence-checklist]
+  decide: [candidate-direction, confidence-checklist, researcher-profile]

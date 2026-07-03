@@ -6,6 +6,7 @@ import pytest
 from kagami.store.artifact import (
     ArtifactError,
     RejectedWriteError,
+    accept_artifact,
     claim_section,
     create_artifact,
     mark_dependents_stale,
@@ -243,6 +244,35 @@ def test_mark_dependents_stale_ignores_artifacts_already_current(tmp_path):
     staled = mark_dependents_stale(tmp_path, dep["id"], dependency_new_version=2)
 
     assert unrelated["id"] not in staled
+
+
+def test_accept_artifact_stores_summary_in_the_new_version_and_flips_status(tmp_path):
+    result = create_artifact(
+        tmp_path, "gap-register", _base_fields(summary=""), sections={"statement": "x"}
+    )
+    summary = "\n".join(f"line {i}" for i in range(6))
+
+    outcome = accept_artifact(tmp_path, "gap-register", result["id"], summary)
+    assert outcome["ok"] is True
+    assert outcome["version"] == 2
+
+    frontmatter, _ = read_version(tmp_path, "gap-register", result["id"], 2)
+    assert frontmatter["summary"] == summary
+    assert frontmatter["status"] == "accepted"
+
+    v1_frontmatter, _ = read_version(tmp_path, "gap-register", result["id"], 1)
+    assert v1_frontmatter["summary"] == ""
+
+
+def test_accept_artifact_rejects_summary_outside_five_to_ten_lines(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+
+    with pytest.raises(ArtifactError):
+        accept_artifact(tmp_path, "gap-register", result["id"], "only one line")
+
+    too_long = "\n".join(f"line {i}" for i in range(11))
+    with pytest.raises(ArtifactError):
+        accept_artifact(tmp_path, "gap-register", result["id"], too_long)
 
 
 def _load_meta(art_dir):

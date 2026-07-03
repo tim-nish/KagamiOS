@@ -26,6 +26,9 @@ REQUIRED_METADATA_FIELDS = (
 
 HUMAN_TOUCHED_AUTHOR_CLASSES = ("human", "ai-drafted-human-confirmed")
 
+SUMMARY_MIN_LINES = 5
+SUMMARY_MAX_LINES = 10
+
 
 class ArtifactError(Exception):
     pass
@@ -255,6 +258,41 @@ def scan(run_dir: Path, type_slug: str, art_id: str) -> dict:
             "version": new_version,
             "changed_sections": changed_sections,
         }
+
+
+def accept_artifact(run_dir: Path, type_slug: str, art_id: str, summary: str) -> dict:
+    """FR-33: the 5-10 line summary is regenerated only at acceptance, as part
+    of that version — `kagami accept` is the sole entrypoint that writes it."""
+    line_count = len(summary.strip().splitlines())
+    if not (SUMMARY_MIN_LINES <= line_count <= SUMMARY_MAX_LINES):
+        raise ArtifactError(
+            f"summary must be {SUMMARY_MIN_LINES}-{SUMMARY_MAX_LINES} lines, got {line_count} (FR-33)"
+        )
+
+    art_dir = _artifact_dir(run_dir, type_slug, art_id)
+    meta_path = art_dir / "meta.yaml"
+
+    with acquire_run_lock(run_dir / ".lock"):
+        meta = _read_meta(meta_path)
+        frontmatter, sections = parse_document((art_dir / "current.md").read_text())
+
+        frontmatter["summary"] = summary
+        frontmatter["status"] = "accepted"
+        validate_can_accept(frontmatter)
+
+        new_version = meta["current_version"] + 1
+        frontmatter["version"] = new_version
+        frontmatter["updated"] = utc_now_iso()
+        new_text = render_document(frontmatter, sections)
+
+        atomic_write(art_dir / f"v{new_version}.md", new_text)
+        atomic_write(art_dir / "current.md", new_text)
+        meta["current_version"] = new_version
+        meta["status"] = "accepted"
+        meta["content_hash"] = _content_hash(new_text)
+        _write_meta(meta_path, meta)
+
+    return {"ok": True, "version": new_version}
 
 
 def mark_dependents_stale(run_dir: Path, dependency_id: str, dependency_new_version: int) -> list[str]:

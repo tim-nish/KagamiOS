@@ -105,10 +105,17 @@ def _build_type_schema(raw: dict, extra_fields: dict) -> TypeSchema:
 
 
 class SchemaRegistry:
-    def __init__(self, artifact_schemas: dict, store_schemas: dict, state_machine: dict):
+    def __init__(
+        self,
+        artifact_schemas: dict,
+        store_schemas: dict,
+        state_machine: dict,
+        consumption_map: dict | None = None,
+    ):
         self._artifact_schemas = artifact_schemas
         self._store_schemas = store_schemas
         self._state_machine = state_machine
+        self._consumption_map = consumption_map or {}
 
     def artifact_types(self) -> tuple:
         return tuple(sorted(self._artifact_schemas))
@@ -157,6 +164,16 @@ class SchemaRegistry:
             sorted(name for name, spec in schema.fields.items() if spec.comparison_axis)
         )
 
+    def consumption_map(self, state: str) -> tuple:
+        """FR-15: the artifact types a given state's brief may read, of any kind."""
+        try:
+            return tuple(self._consumption_map[state])
+        except KeyError:
+            raise RegistryError(f"no consumption map defined for state '{state}'") from None
+
+    def can_read(self, state: str, type_slug: str) -> bool:
+        return type_slug in self.consumption_map(state)
+
     def validate(self, type_slug: str, artifact_fields: dict) -> None:
         schema = self.get_artifact_schema(type_slug)
         unknown = set(artifact_fields) - set(schema.fields)
@@ -197,4 +214,18 @@ def load_registry(schemas_root: Path | None = None) -> SchemaRegistry:
                 f"'{type_slug}' has invalid generation_window '{schema.generation_window}'"
             )
 
-    return SchemaRegistry(artifact_schemas, store_schemas, state_machine)
+    consumption_map_raw = _load_yaml(root / "consumption_map.yaml")
+    consumption_map = consumption_map_raw.get("states") or {}
+    valid_consumers = set(state_machine["states"]) | {state_machine["decide_gate"]}
+    unknown_consumers = set(consumption_map) - valid_consumers
+    if unknown_consumers:
+        raise RegistryError(f"consumption map has unknown consumer(s): {sorted(unknown_consumers)}")
+    for consumer, readable_types in consumption_map.items():
+        unknown_types = set(readable_types) - set(artifact_schemas)
+        if unknown_types:
+            raise RegistryError(
+                f"consumption map for '{consumer}' references unknown artifact type(s): "
+                f"{sorted(unknown_types)}"
+            )
+
+    return SchemaRegistry(artifact_schemas, store_schemas, state_machine, consumption_map)

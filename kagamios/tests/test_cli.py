@@ -74,6 +74,55 @@ def test_scan_subcommand_reports_no_change_then_a_new_version(tmp_path, monkeypa
     assert changed["version"] == 2
 
 
+def test_accept_and_read_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-accept-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-accept-test"
+    result = create_artifact(
+        run_dir,
+        "researcher-profile",
+        {
+            "depends_on": [],
+            "elicited_from": [],
+            "decided_by": "ai-drafted/human-reviewed",
+            "summary": "",
+        },
+        sections={"notes": "background"},
+    )
+
+    summary = "\n".join(f"line {i}" for i in range(6))
+    exit_code = main(
+        ["accept", "--run-id", "run-accept-test", "--type", "researcher-profile", "--art-id", result["id"], "--summary", summary]
+    )
+    accepted = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert accepted["ok"] is True
+    assert accepted["version"] == 2
+
+    exit_code = main(
+        ["read", "--run-id", "run-accept-test", "--state", "frame", "--type", "researcher-profile", "--art-id", result["id"], "--resolution", "summary"]
+    )
+    read_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert read_out["summary"] == summary
+
+    exit_code = main(
+        ["read", "--run-id", "run-accept-test", "--state", "frame", "--type", "gap-register", "--art-id", "nonexistent", "--resolution", "summary"]
+    )
+    refused = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert refused["ok"] is False
+
+    exit_code = main(["metrics", "summary-sufficiency", "--run-id", "run-accept-test"])
+    metrics_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert metrics_out == {"ok": True, "full_pull_after_summary_count": 0}
+
+
 def test_ask_emit_then_answer_then_revise_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-ask-test"])

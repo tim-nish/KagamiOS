@@ -2,11 +2,13 @@ import argparse
 import json
 import sys
 
+from kagami.kernel.metrics import count_full_pull_after_summary
 from kagami.paths import resolve_output_root
 from kagami.schema_version import SchemaVersionError
 from kagami.store import ledger
-from kagami.store.artifact import ArtifactError, count_provisional, scan
+from kagami.store.artifact import ArtifactError, accept_artifact, count_provisional, scan
 from kagami.store.ledger import LedgerError
+from kagami.store.read import ConsumptionError, read_artifact
 from kagami.store.run import open_run
 
 
@@ -26,6 +28,22 @@ def _cmd_scan(args: argparse.Namespace) -> dict:
     try:
         return scan(run_dir, args.type, args.art_id)
     except (ArtifactError, FileNotFoundError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_accept(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return accept_artifact(run_dir, args.type, args.art_id, args.summary)
+    except (ArtifactError, FileNotFoundError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_read(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return read_artifact(run_dir, args.state, args.type, args.art_id, args.resolution)
+    except (ConsumptionError, FileNotFoundError) as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -59,6 +77,11 @@ def _cmd_metrics_provisional_count(args: argparse.Namespace) -> dict:
     return {"ok": True, "provisional_count": count_provisional(run_dir)}
 
 
+def _cmd_metrics_summary_sufficiency(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return {"ok": True, "full_pull_after_summary_count": count_full_pull_after_summary(run_dir)}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kagami")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -75,6 +98,23 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument("--type", dest="type", required=True)
     scan_parser.add_argument("--art-id", dest="art_id", required=True)
     scan_parser.set_defaults(func=_cmd_scan)
+
+    accept_parser = subparsers.add_parser("accept")
+    accept_parser.add_argument("--run-id", dest="run_id", required=True)
+    accept_parser.add_argument("--type", dest="type", required=True)
+    accept_parser.add_argument("--art-id", dest="art_id", required=True)
+    accept_parser.add_argument("--summary", dest="summary", required=True)
+    accept_parser.set_defaults(func=_cmd_accept)
+
+    read_parser = subparsers.add_parser("read")
+    read_parser.add_argument("--run-id", dest="run_id", required=True)
+    read_parser.add_argument("--state", dest="state", required=True)
+    read_parser.add_argument("--type", dest="type", required=True)
+    read_parser.add_argument("--art-id", dest="art_id", required=True)
+    read_parser.add_argument(
+        "--resolution", dest="resolution", required=True, choices=("summary", "full")
+    )
+    read_parser.set_defaults(func=_cmd_read)
 
     ask_parser = subparsers.add_parser("ask")
     ask_subparsers = ask_parser.add_subparsers(dest="ask_command", required=True)
@@ -102,6 +142,10 @@ def build_parser() -> argparse.ArgumentParser:
     provisional_count_parser = metrics_subparsers.add_parser("provisional-count")
     provisional_count_parser.add_argument("--run-id", dest="run_id", required=True)
     provisional_count_parser.set_defaults(func=_cmd_metrics_provisional_count)
+
+    summary_sufficiency_parser = metrics_subparsers.add_parser("summary-sufficiency")
+    summary_sufficiency_parser.add_argument("--run-id", dest="run_id", required=True)
+    summary_sufficiency_parser.set_defaults(func=_cmd_metrics_summary_sufficiency)
 
     return parser
 
