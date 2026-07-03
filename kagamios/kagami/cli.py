@@ -12,6 +12,7 @@ from kagami.kernel.cartographer import (
     draft_clusterings,
     validate_field_map_draft,
 )
+from kagami.kernel.charter_audit import audit_charter_violations
 from kagami.kernel.derived_state import (
     DepthBudgetError,
     compute_run_nominal_state,
@@ -413,6 +414,11 @@ def _cmd_metrics_derived(args: argparse.Namespace) -> dict:
     return compute_derived_metrics(run_dir)
 
 
+def _cmd_metrics_charter_audit(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return audit_charter_violations(run_dir)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kagami")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -756,6 +762,10 @@ def build_parser() -> argparse.ArgumentParser:
     derived_parser = metrics_subparsers.add_parser("derived")
     derived_parser.add_argument("--run-id", dest="run_id", required=True)
     derived_parser.set_defaults(func=_cmd_metrics_derived)
+
+    charter_audit_parser = metrics_subparsers.add_parser("charter-audit")
+    charter_audit_parser.add_argument("--run-id", dest="run_id", required=True)
+    charter_audit_parser.set_defaults(func=_cmd_metrics_charter_audit)
 
     gate_parser = subparsers.add_parser("gate")
     gate_subparsers = gate_parser.add_subparsers(dest="gate_command", required=True)

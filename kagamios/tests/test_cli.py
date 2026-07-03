@@ -799,6 +799,48 @@ def test_metrics_derived_reports_all_four_blocks_through_cli(tmp_path, monkeypat
     assert result["decision_block"]["provisional_count"] == 0
 
 
+def test_metrics_charter_audit_detects_a_real_historian_violation_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-charter-audit-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-charter-audit-test"
+    dossier = create_artifact(
+        run_dir, "cluster-dossier",
+        {"depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": ""},
+        sections={"evolution": "x", "frontier": "y"},
+    )
+
+    exit_code = main(["metrics", "charter-audit", "--run-id", "run-charter-audit-test"])
+    clean_result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert clean_result == {
+        "ok": True,
+        "violation_count": 0,
+        "violations": {
+            "scout_produced_interpretation": [],
+            "skeptic_proposed_an_alternative": [],
+            "historian_spoke_outside_evolution": [],
+            "non_scout_touched_raw_corpus": [],
+        },
+    }
+
+    exit_code = main(
+        ["historian", "write", "--run-id", "run-charter-audit-test", "--art-id", dossier["id"],
+         "--section", "frontier", "--body", "off-limits content"]
+    )
+    assert exit_code == 1
+    capsys.readouterr()
+
+    exit_code = main(["metrics", "charter-audit", "--run-id", "run-charter-audit-test"])
+    violated_result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert violated_result["violation_count"] == 1
+    assert len(violated_result["violations"]["historian_spoke_outside_evolution"]) == 1
+
+
 def test_gate_propose_and_approve_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 

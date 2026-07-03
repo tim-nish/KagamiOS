@@ -27,3 +27,13 @@ def test_append_event_appends_without_truncating(tmp_path):
 def test_append_event_rejects_unknown_family(tmp_path):
     with pytest.raises(ValueError):
         append_event(tmp_path, "not_a_real_family", {})
+
+
+def test_append_event_rejects_an_llm_call_with_no_role(tmp_path):
+    with pytest.raises(ValueError):
+        append_event(tmp_path, "llm_call", {"operation_class": "draft"})
+
+
+def test_append_event_accepts_an_llm_call_with_a_role(tmp_path):
+    event = append_event(tmp_path, "llm_call", {"role": "historian", "operation_class": "draft"})
+    assert event["role"] == "historian"

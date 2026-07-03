@@ -20,6 +20,8 @@ EVENT_FAMILIES = (
 def append_event(run_dir: Path, family: str, payload: dict) -> dict:
     if family not in EVENT_FAMILIES:
         raise ValueError(f"unknown event family '{family}'")
+    if family == "llm_call" and not payload.get("role"):
+        raise ValueError("an 'llm_call' event must carry a non-null 'role' tag (FR-29)")
     event = {"family": family, "timestamp": utc_now_iso(), **payload}
     with open(run_dir / "events.jsonl", "a") as f:
         f.write(json.dumps(event) + "\n")
