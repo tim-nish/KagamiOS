@@ -26,6 +26,7 @@ from kagami.kernel.historian import HistorianError, historian_write
 from kagami.kernel.metrics import count_full_pull_after_summary
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.scout import CorpusAccessError, search_corpus
+from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_skeptic_critique, skeptic_write
 from kagami.kernel.state_machine import StateMachineError, enter_state
 from kagami.paths import resolve_output_root
 from kagami.schema_version import SchemaVersionError
@@ -169,6 +170,25 @@ def _cmd_cartographer_create(args: argparse.Namespace) -> dict:
     try:
         return create_field_map_clusters(run_dir, chosen_cut, cuts, papers_by_id)
     except (CartographerError, ArtifactError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_skeptic_context(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return build_skeptic_context(run_dir, args.type, args.art_id)
+
+
+def _cmd_skeptic_critique(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    evidence_cited = json.loads(args.evidence_json)
+    return record_skeptic_critique(run_dir, args.type, args.art_id, args.objection, evidence_cited)
+
+
+def _cmd_skeptic_write(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return skeptic_write(run_dir, args.type, args.art_id, args.section, args.body)
+    except (SkepticError, ArtifactError) as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -319,6 +339,31 @@ def build_parser() -> argparse.ArgumentParser:
     frame_complete_parser.add_argument("--sections", dest="sections_json", required=True)
     frame_complete_parser.add_argument("--summary", dest="summary", required=True)
     frame_complete_parser.set_defaults(func=_cmd_frame_complete)
+
+    skeptic_parser = subparsers.add_parser("skeptic")
+    skeptic_subparsers = skeptic_parser.add_subparsers(dest="skeptic_command", required=True)
+
+    skeptic_context_parser = skeptic_subparsers.add_parser("context")
+    skeptic_context_parser.add_argument("--run-id", dest="run_id", required=True)
+    skeptic_context_parser.add_argument("--type", dest="type", required=True)
+    skeptic_context_parser.add_argument("--art-id", dest="art_id", required=True)
+    skeptic_context_parser.set_defaults(func=_cmd_skeptic_context)
+
+    skeptic_critique_parser = skeptic_subparsers.add_parser("critique")
+    skeptic_critique_parser.add_argument("--run-id", dest="run_id", required=True)
+    skeptic_critique_parser.add_argument("--type", dest="type", required=True)
+    skeptic_critique_parser.add_argument("--art-id", dest="art_id", required=True)
+    skeptic_critique_parser.add_argument("--objection", dest="objection", required=True)
+    skeptic_critique_parser.add_argument("--evidence", dest="evidence_json", required=True)
+    skeptic_critique_parser.set_defaults(func=_cmd_skeptic_critique)
+
+    skeptic_write_parser = skeptic_subparsers.add_parser("write")
+    skeptic_write_parser.add_argument("--run-id", dest="run_id", required=True)
+    skeptic_write_parser.add_argument("--type", dest="type", required=True)
+    skeptic_write_parser.add_argument("--art-id", dest="art_id", required=True)
+    skeptic_write_parser.add_argument("--section", dest="section", required=True)
+    skeptic_write_parser.add_argument("--body", dest="body", required=True)
+    skeptic_write_parser.set_defaults(func=_cmd_skeptic_write)
 
     historian_parser = subparsers.add_parser("historian")
     historian_subparsers = historian_parser.add_subparsers(dest="historian_command", required=True)

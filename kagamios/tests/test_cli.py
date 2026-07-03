@@ -198,6 +198,57 @@ def test_state_enter_skip_without_waiver_is_flagged(tmp_path, monkeypatch, capsy
     assert result["violation"] is not None
 
 
+def test_skeptic_context_write_and_critique_round_trip_through_cli(tmp_path, monkeypatch, capsys):
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-skeptic-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-skeptic-test"
+    candidate = create_artifact(
+        run_dir,
+        "candidate-direction",
+        {
+            "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
+            "summary": "",
+        },
+        sections={"direction": "x", "red_team_notes": ""},
+    )
+
+    exit_code = main(
+        ["skeptic", "context", "--run-id", "run-skeptic-test", "--type", "candidate-direction",
+         "--art-id", candidate["id"]]
+    )
+    context_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert context_out["target"]["id"] == candidate["id"]
+
+    exit_code = main(
+        ["skeptic", "write", "--run-id", "run-skeptic-test", "--type", "candidate-direction",
+         "--art-id", candidate["id"], "--section", "red_team_notes", "--body", "weak evidence"]
+    )
+    write_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert write_out["ok"] is True
+
+    exit_code = main(
+        ["skeptic", "write", "--run-id", "run-skeptic-test", "--type", "candidate-direction",
+         "--art-id", candidate["id"], "--section", "direction", "--body", "a new direction"]
+    )
+    refused_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert refused_out["ok"] is False
+
+    exit_code = main(
+        ["skeptic", "critique", "--run-id", "run-skeptic-test", "--type", "candidate-direction",
+         "--art-id", candidate["id"], "--objection", "the claim overreaches", "--evidence", json.dumps(["ppr-1"])]
+    )
+    critique_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert critique_out["ok"] is True
+
+
 def test_historian_write_refuses_a_non_evolution_section_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 
