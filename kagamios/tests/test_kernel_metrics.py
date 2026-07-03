@@ -1,6 +1,7 @@
 from kagami.events import append_event
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.metrics import (
+    compute_budget_warning,
     compute_decision_block,
     compute_derived_metrics,
     compute_override_profile,
@@ -11,8 +12,45 @@ from kagami.kernel.metrics import (
     count_full_pull_after_summary,
 )
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
+from kagami.kernel.report import report_llm_call
 from kagami.store import ledger
 from kagami.store.artifact import count_provisional, create_artifact, mark_dependents_stale, pin_dependency
+from kagami.store.run import open_run
+
+
+def test_budget_warning_is_none_when_unconfigured():
+    token_ledger = {"spend_by_role_and_operation_class": {"scout::x": {"tokens_in": 1000, "tokens_out": 1000}}}
+    assert compute_budget_warning(token_ledger, config={}) is None
+    assert compute_budget_warning(token_ledger, config=None) is None
+
+
+def test_budget_warning_is_none_when_under_the_soft_limit():
+    token_ledger = {"spend_by_role_and_operation_class": {"scout::x": {"tokens_in": 100, "tokens_out": 50}}}
+    assert compute_budget_warning(token_ledger, config={"token_budget_soft_limit": 1000}) is None
+
+
+def test_budget_warning_fires_when_at_or_over_the_soft_limit_but_never_blocks():
+    token_ledger = {"spend_by_role_and_operation_class": {"scout::x": {"tokens_in": 800, "tokens_out": 300}}}
+    warning = compute_budget_warning(token_ledger, config={"token_budget_soft_limit": 1000})
+    assert warning is not None
+    assert warning["total_tokens"] == 1100
+    assert warning["soft_limit"] == 1000
+    # AD-26(c): a warning field, never a refusal or an "ok": False.
+    assert "ok" not in warning
+
+
+def test_derived_metrics_carries_the_budget_warning_computed_from_real_llm_call_events(tmp_path):
+    open_run(run_id="run-budget", output_root=tmp_path / "_out")
+    run_dir = tmp_path / "_out" / "runs" / "run-budget"
+    report_llm_call(run_dir, "scout", "paper_card_extraction", "cheap-model", 900, 200, False, "call-1")
+
+    under_limit = compute_derived_metrics(run_dir, config={"token_budget_soft_limit": 5000})
+    assert under_limit["budget_warning"] is None
+
+    over_limit = compute_derived_metrics(run_dir, config={"token_budget_soft_limit": 1000})
+    assert over_limit["budget_warning"]["total_tokens"] == 1100
+    # Never a block: the rest of the derived-metrics computation still runs.
+    assert over_limit["ok"] is True
 
 
 def test_full_pull_immediately_after_summary_is_counted(tmp_path):

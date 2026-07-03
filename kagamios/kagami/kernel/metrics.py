@@ -190,6 +190,36 @@ def compute_unprimed_vs_final_diff_at_frame(run_dir: Path) -> dict | None:
     return None
 
 
+def compute_budget_warning(token_ledger: dict, config: dict | None = None) -> dict | None:
+    """AD-26(c): a gate-time soft-limit warning, never a block. Reads a
+    researcher-set soft limit from `config.yaml` (`token_budget_soft_limit`);
+    this is reporting at an existing checkpoint (FR-37), not the live
+    budget enforcement NFR5/addendum A4/O6 defer — it never withholds
+    progress, only surfaces the number. Returns None when unconfigured or
+    still under the limit, so the decision block stays clean by default.
+    """
+    soft_limit = (config or {}).get("token_budget_soft_limit")
+    if not soft_limit:
+        return None
+
+    total_tokens = sum(
+        bucket["tokens_in"] + bucket["tokens_out"]
+        for bucket in token_ledger.get("spend_by_role_and_operation_class", {}).values()
+    )
+    if total_tokens < soft_limit:
+        return None
+
+    return {
+        "total_tokens": total_tokens,
+        "soft_limit": soft_limit,
+        "message": (
+            f"Cumulative token spend ({total_tokens}) has crossed the configured "
+            f"soft limit ({soft_limit}). This is a warning only — the run is not "
+            "blocked (AD-26)."
+        ),
+    }
+
+
 def compute_decision_block(run_dir: Path) -> dict:
     """FR-37/PRD §8: at MVP's Gap Register terminal, only the fields
     reachable without Propose/Decide are populated — candidate origins and
@@ -203,16 +233,19 @@ def compute_decision_block(run_dir: Path) -> dict:
     }
 
 
-def compute_derived_metrics(run_dir: Path, registry=None) -> dict:
-    """FR-37: question economics, a token ledger, an override profile, and
-    a decision block — all deterministic computation over the run's own
-    artifact store and event log. Re-running this over the same log always
-    produces identical numbers; nothing here is an LLM judgment call."""
+def compute_derived_metrics(run_dir: Path, registry=None, config: dict | None = None) -> dict:
+    """FR-37: question economics, a token ledger, an override profile, a
+    decision block, and (AD-26c) a gate-time budget warning — all
+    deterministic computation over the run's own artifact store and event
+    log. Re-running this over the same log always produces identical
+    numbers; nothing here is an LLM judgment call."""
     registry = registry or load_registry()
+    token_ledger = compute_token_ledger(run_dir)
     return {
         "ok": True,
         "question_economics": compute_question_economics(run_dir),
-        "token_ledger": compute_token_ledger(run_dir),
+        "token_ledger": token_ledger,
         "override_profile": compute_override_profile(run_dir, registry),
         "decision_block": compute_decision_block(run_dir),
+        "budget_warning": compute_budget_warning(token_ledger, config),
     }

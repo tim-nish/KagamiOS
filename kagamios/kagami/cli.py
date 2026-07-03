@@ -44,8 +44,10 @@ from kagami.kernel.locate import (
     record_micro_probe_evidence,
     validate_locate_exit,
 )
+from kagami.kernel.dispatch import DispatchError, resolve_model
 from kagami.kernel.metrics import compute_derived_metrics, count_full_pull_after_summary
 from kagami.kernel.monitor import MonitorError, mark_dormant, monitor_sweep
+from kagami.kernel.report import ReportError, report_llm_call
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
 from kagami.kernel.scout import CorpusAccessError, search_corpus
@@ -412,7 +414,8 @@ def _cmd_metrics_summary_sufficiency(args: argparse.Namespace) -> dict:
 
 def _cmd_metrics_derived(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
-    return compute_derived_metrics(run_dir)
+    config = load_config(Path.cwd())
+    return compute_derived_metrics(run_dir, config=config)
 
 
 def _cmd_metrics_charter_audit(args: argparse.Namespace) -> dict:
@@ -426,6 +429,31 @@ def _cmd_metrics_shared_payload(args: argparse.Namespace) -> dict:
     try:
         return generate_shared_payload(run_dir, config)
     except PrivacyError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_report_llm_call(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return report_llm_call(
+            run_dir,
+            args.role,
+            args.operation_class,
+            args.model_tier,
+            args.tokens_in,
+            args.tokens_out,
+            args.cache_hit == "true",
+            args.call_id,
+        )
+    except ReportError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_dispatch_resolve(args: argparse.Namespace) -> dict:
+    config = load_config(Path.cwd())
+    try:
+        return resolve_model(args.operation_class, config)
+    except DispatchError as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -793,6 +821,37 @@ def build_parser() -> argparse.ArgumentParser:
     gate_approve_parser.add_argument("--run-id", dest="run_id", required=True)
     gate_approve_parser.add_argument("--type", dest="type", required=True)
     gate_approve_parser.set_defaults(func=_cmd_gate_approve)
+
+    report_parser = subparsers.add_parser("report")
+    report_subparsers = report_parser.add_subparsers(dest="report_command", required=True)
+
+    report_llm_call_parser = report_subparsers.add_parser("llm-call")
+    report_llm_call_parser.add_argument("--run-id", dest="run_id", required=True)
+    report_llm_call_parser.add_argument("--role", dest="role", required=True)
+    report_llm_call_parser.add_argument(
+        "--operation-class", dest="operation_class", required=True
+    )
+    report_llm_call_parser.add_argument("--model-tier", dest="model_tier", required=True)
+    report_llm_call_parser.add_argument(
+        "--tokens-in", dest="tokens_in", type=int, required=True
+    )
+    report_llm_call_parser.add_argument(
+        "--tokens-out", dest="tokens_out", type=int, required=True
+    )
+    report_llm_call_parser.add_argument(
+        "--cache-hit", dest="cache_hit", choices=("true", "false"), required=True
+    )
+    report_llm_call_parser.add_argument("--call-id", dest="call_id", required=True)
+    report_llm_call_parser.set_defaults(func=_cmd_report_llm_call)
+
+    dispatch_parser = subparsers.add_parser("dispatch")
+    dispatch_subparsers = dispatch_parser.add_subparsers(dest="dispatch_command", required=True)
+
+    dispatch_resolve_parser = dispatch_subparsers.add_parser("resolve")
+    dispatch_resolve_parser.add_argument(
+        "--operation-class", dest="operation_class", required=True
+    )
+    dispatch_resolve_parser.set_defaults(func=_cmd_dispatch_resolve)
 
     return parser
 

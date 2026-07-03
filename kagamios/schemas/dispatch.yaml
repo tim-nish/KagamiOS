@@ -1,0 +1,36 @@
+schema_version: 1
+tiers: [deterministic, deterministic-ml, cheap-model, frontier-model]
+operations:
+  # Deterministic — no model call at all (AD-12, AD-22's needs_llm protocol
+  # never fires for these; they are plain kagami/kernel functions).
+  unknown_enumeration: deterministic
+  staleness_propagation: deterministic
+  budget_accounting: deterministic
+  exit_criteria_check: deterministic
+  derived_state_computation: deterministic
+  refusal_ceiling_check: deterministic
+  token_ledger_computation: deterministic
+
+  # Deterministic / classical ML — no frontier call; embeddings, graph
+  # communities, and citation statistics computed by the corpus tier.
+  paper_dedup: deterministic-ml
+  citation_statistics: deterministic-ml
+  candidate_partition: deterministic-ml
+  recency_profile: deterministic-ml
+  representative_set_selection: deterministic-ml
+
+  # Cheap model tier — bounded, mechanical drafting/checking tasks.
+  paper_card_extraction: cheap-model
+  repair_tier1_plausibility_check: cheap-model
+  summary_refresh: cheap-model
+
+  # Frontier model tier — open-ended drafting, critique, and framing work
+  # where the fresh-context rule (FR-27, AD-4) is a role-charter concern
+  # layered on top of this tier, not a separate tier of its own.
+  frame_drafting: frontier-model
+  cluster_naming: frontier-model
+  dossier_drafting: frontier-model
+  synthesis_drafting: frontier-model
+  gap_register_drafting: frontier-model
+  question_phrasing: frontier-model
+  skeptic_critique: frontier-model
