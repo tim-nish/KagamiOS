@@ -33,13 +33,14 @@ def test_resolve_provider_without_backoff_config_uses_adapter_defaults():
 FIXTURES = {
     "openalex": {
         "search": {"results": [{"doi": "10.1/a", "title": "Paper A"}]},
-        "metadata": {"doi": "10.1/a", "title": "Paper A"},
+        "metadata": {"doi": "10.1/a", "title": "Paper A", "referenced_works": ["https://openalex.org/W3"]},
         "citations": {"results": [{"id": "https://openalex.org/W2"}]},
     },
     "semantic-scholar": {
         "search": {"data": [{"paperId": "ss-1", "title": "Paper B"}]},
         "metadata": {"paperId": "ss-1", "title": "Paper B"},
         "citations": {"data": [{"paperId": "ss-2"}]},
+        "references": {"data": [{"paperId": "ss-3"}]},
     },
     "arxiv": {
         "search": {"entries": [{"arxiv_id": "2101.00001", "title": "Paper C"}]},
@@ -55,12 +56,17 @@ FIXTURES = {
 
 
 def _fake_fetch(name):
-    calls = {"search": 0, "metadata": 0, "citations": 0}
+    calls = {"search": 0, "metadata": 0, "citations": 0, "references": 0}
 
     def fetch(url: str) -> dict:
         if "search" in url or "query=" in url:
             calls["search"] += 1
             return FIXTURES[name]["search"]
+        # FR-51: check "references" before "citations" — Semantic Scholar's
+        # references endpoint is its own URL, distinct from /citations.
+        if "references" in url:
+            calls["references"] += 1
+            return FIXTURES[name]["references"]
         if "citations" in url:
             calls["citations"] += 1
             return FIXTURES[name]["citations"]
@@ -95,6 +101,31 @@ def test_every_adapter_passes_the_same_contract_test(adapter_cls):
     graph = provider.citation_graph(results[0]["canonical_key"])
     assert graph["canonical_key"] == results[0]["canonical_key"]
     assert "cited_by" in graph
+    assert "references" in graph  # FR-51: both keys always present, even when empty
+
+
+def test_openalex_citation_graph_returns_both_directions():
+    provider = OpenAlexProvider(fetch=_fake_fetch("openalex"))
+    graph = provider.citation_graph("10.1/a")
+    assert graph["cited_by"] == ["https://openalex.org/W2"]
+    assert graph["references"] == ["https://openalex.org/W3"]
+
+
+def test_semantic_scholar_citation_graph_returns_both_directions():
+    provider = SemanticScholarProvider(fetch=_fake_fetch("semantic-scholar"))
+    graph = provider.citation_graph("ss-1")
+    assert graph["cited_by"] == ["ss-2"]
+    assert graph["references"] == ["ss-3"]
+
+
+@pytest.mark.parametrize("adapter_cls", [ArxivProvider, GitHubProvider])
+def test_arxiv_and_github_legitimately_return_empty_citation_graphs_in_both_directions(adapter_cls):
+    """FR-51: no real citation-graph source in either direction for these
+    two adapters — an exposed provider bias, not a gap to fabricate around."""
+    provider = adapter_cls(fetch=_fake_fetch(adapter_cls.name))
+    graph = provider.citation_graph("some-key")
+    assert graph["cited_by"] == []
+    assert graph["references"] == []
 
 
 def test_resolve_provider_defaults_to_config_value_no_call_site_hardcodes_it():

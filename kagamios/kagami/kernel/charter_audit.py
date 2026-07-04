@@ -11,6 +11,11 @@ HISTORIAN_ROLE = "historian"
 # interpretation, not retrieval.
 SCOUT_ALLOWED_OPERATION_CLASSES = frozenset({"corpus_search", "retrieval"})
 
+# FR-25/FR-50: both of Scout's sanctioned raw-corpus retrieval kinds — a
+# non-Scout role touching either is a charter violation, not just the
+# original bulk-search sensor.
+RAW_CORPUS_RETRIEVAL_KINDS = frozenset({"corpus_search", "corpus_expand"})
+
 
 def _read_events(run_dir: Path) -> list:
     path = run_dir / "events.jsonl"
@@ -32,8 +37,9 @@ def audit_charter_violations(run_dir: Path) -> dict:
       speculation within it (FR-28) — already refused and logged the same
       way by `kernel.historian.historian_write`.
     - Any non-Scout call touching the raw corpus (FR-25) — already refused
-      before it can be logged by `kernel.scout.search_corpus`, so this
-      check is a defense-in-depth backstop, not the primary guarantee.
+      before it can be logged by `kernel.scout.search_corpus` or
+      `kernel.scout.corpus_expand` (FR-50), so this check is a
+      defense-in-depth backstop, not the primary guarantee.
 
     Returns the specific responsible event(s) per violation type, never
     just a pass/fail flag; `violation_count == 0` when none occurred.
@@ -44,7 +50,7 @@ def audit_charter_violations(run_dir: Path) -> dict:
         event
         for event in events
         if event.get("family") == "retrieval"
-        and event.get("kind") == "corpus_search"
+        and event.get("kind") in RAW_CORPUS_RETRIEVAL_KINDS
         and event.get("role") != SCOUT_ROLE
     ]
 

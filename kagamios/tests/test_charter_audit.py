@@ -120,6 +120,30 @@ def test_audit_does_not_flag_a_scout_corpus_search(tmp_path):
     assert result["violation_count"] == 0
 
 
+def test_audit_flags_a_non_scout_role_touching_the_raw_corpus_via_expand(tmp_path):
+    """FR-50: corpus_expand is Scout's second sanctioned corpus-touching
+    action — a non-Scout role's expand event must be caught by the same
+    defense-in-depth check as corpus_search."""
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_expand", "role": "historian", "provider": "stub", "origin_paper_id": "ppr-x", "edges": []},
+    )
+
+    result = audit_charter_violations(tmp_path)
+    assert result["violation_count"] == 1
+    assert len(result["violations"]["non_scout_touched_raw_corpus"]) == 1
+
+
+def test_audit_does_not_flag_a_scout_corpus_expand(tmp_path):
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_expand", "role": "scout", "provider": "stub", "origin_paper_id": "ppr-x", "edges": []},
+    )
+
+    result = audit_charter_violations(tmp_path)
+    assert result["violation_count"] == 0
+
+
 def test_audit_flags_scout_llm_call_outside_the_retrieval_allowlist(tmp_path):
     append_event(tmp_path, "llm_call", {"role": "scout", "operation_class": "draft"})
 

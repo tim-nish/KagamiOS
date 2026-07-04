@@ -723,6 +723,51 @@ def test_corpus_search_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsy
     assert result["ok"] is False
 
 
+def test_corpus_expand_cli_mints_neighbor_cards_and_logs_edges(tmp_path, monkeypatch, capsys):
+    import kagami.cli as cli_module
+    from kagami.corpus.provider import LiteratureProvider
+
+    class _StubProvider(LiteratureProvider):
+        name = "stub"
+
+        def search(self, query, limit=20):
+            raise NotImplementedError
+
+        def paper_metadata(self, canonical_key):
+            return {"canonical_key": canonical_key, "title": "Neighbor", "source": "stub"}
+
+        def citation_graph(self, canonical_key):
+            return {"canonical_key": canonical_key, "cited_by": ["10.1/b"], "references": []}
+
+    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None: _StubProvider())
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-expand-test"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["corpus", "expand", "--run-id", "run-corpus-expand-test", "--role", "scout", "--canonical-key", "10.1/a"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert len(result["edges"]) == 1
+    assert result["edges"][0]["direction"] == "cited_by"
+
+
+def test_corpus_expand_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-expand-refuse"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["corpus", "expand", "--run-id", "run-corpus-expand-refuse", "--role", "historian",
+         "--canonical-key", "10.1/a"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+
 def test_ask_emit_then_answer_then_revise_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-ask-test"])

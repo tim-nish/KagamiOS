@@ -88,8 +88,13 @@ class OpenAlexProvider(_BackoffMixin, LiteratureProvider):
         return self._to_result(self._fetch_with_backoff(f"https://api.openalex.org/works/{canonical_key}"))
 
     def citation_graph(self, canonical_key: str) -> dict:
-        data = self._fetch_with_backoff(f"https://api.openalex.org/works/{canonical_key}/citations")
-        return {"canonical_key": canonical_key, "cited_by": [r.get("id") for r in data.get("results", [])]}
+        citing = self._fetch_with_backoff(f"https://api.openalex.org/works/{canonical_key}/citations")
+        work = self._fetch_with_backoff(f"https://api.openalex.org/works/{canonical_key}")
+        return {
+            "canonical_key": canonical_key,
+            "cited_by": [r.get("id") for r in citing.get("results", [])],
+            "references": work.get("referenced_works", []),
+        }
 
     def _to_result(self, raw: dict) -> dict:
         return {
@@ -129,12 +134,16 @@ class SemanticScholarProvider(_BackoffMixin, LiteratureProvider):
         )
 
     def citation_graph(self, canonical_key: str) -> dict:
-        data = self._fetch_with_backoff(
+        citing = self._fetch_with_backoff(
             f"https://api.semanticscholar.org/graph/v1/paper/{canonical_key}/citations"
+        )
+        referenced = self._fetch_with_backoff(
+            f"https://api.semanticscholar.org/graph/v1/paper/{canonical_key}/references"
         )
         return {
             "canonical_key": canonical_key,
-            "cited_by": [c.get("paperId") for c in data.get("data", [])],
+            "cited_by": [c.get("paperId") for c in citing.get("data", [])],
+            "references": [c.get("paperId") for c in referenced.get("data", [])],
         }
 
     def _to_result(self, raw: dict) -> dict:
@@ -178,7 +187,9 @@ class ArxivProvider(_BackoffMixin, LiteratureProvider):
         return self._to_result(entries[0])
 
     def citation_graph(self, canonical_key: str) -> dict:
-        return {"canonical_key": canonical_key, "cited_by": []}  # arXiv has no citation graph API
+        # FR-51: arXiv has no citation-graph API in either direction — a
+        # real, exposed provider bias, not a gap to fabricate around.
+        return {"canonical_key": canonical_key, "cited_by": [], "references": []}
 
     def _to_result(self, raw: dict) -> dict:
         return {
@@ -217,7 +228,9 @@ class GitHubProvider(_BackoffMixin, LiteratureProvider):
         return self._to_result(self._fetch_with_backoff(f"https://api.github.com/repos/{canonical_key}"))
 
     def citation_graph(self, canonical_key: str) -> dict:
-        return {"canonical_key": canonical_key, "cited_by": []}  # repos aren't cited, they're forked/starred
+        # FR-51: repos aren't cited, they're forked/starred — no citation
+        # graph in either direction, a real provider bias, not a gap.
+        return {"canonical_key": canonical_key, "cited_by": [], "references": []}
 
     def _to_result(self, raw: dict) -> dict:
         return {
