@@ -2,6 +2,6 @@
   "name": "kagamios",
   "version": "0.1.0",
   "description": "KagamiOS: a deterministic gatekeeper core for structured research discovery, co-installable with BMAD.",
-  "author": "KagamiOS",
+  "author": {"name": "KagamiOS"},
   "hooks": "./hooks/hooks.json"
 }

@@ -1,7 +1,10 @@
 import json
 import os
+import re
 import time
+import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from typing import Callable
 
 from kagami.corpus.backoff import DEFAULT_BASE_DELAY_SECONDS, DEFAULT_MAX_RETRIES, with_backoff
@@ -9,10 +12,35 @@ from kagami.corpus.provider import LiteratureProvider, ProviderError
 
 Fetch = Callable[[str], dict]
 
+_ARXIV_ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
+_ARXIV_VERSION_SUFFIX = re.compile(r"v\d+$")
+
 
 def _default_fetch(url: str) -> dict:
     with urllib.request.urlopen(url) as response:  # pragma: no cover - real network path
         return json.loads(response.read())
+
+
+def _parse_arxiv_feed(raw_xml: bytes | str) -> dict:
+    """The real arXiv API returns an Atom/XML feed, not JSON — every other
+    adapter's `_fetch` returns a dict straight from `json.loads`, so this
+    normalizes arXiv's response into the same `{"entries": [...]}` shape
+    `ArxivProvider` already expects, keeping the shared `Fetch` contract intact."""
+    root = ET.fromstring(raw_xml)
+    entries = []
+    for entry in root.findall("atom:entry", _ARXIV_ATOM_NS):
+        id_el = entry.find("atom:id", _ARXIV_ATOM_NS)
+        title_el = entry.find("atom:title", _ARXIV_ATOM_NS)
+        raw_id = (id_el.text or "").strip() if id_el is not None else ""
+        arxiv_id = _ARXIV_VERSION_SUFFIX.sub("", raw_id.rsplit("/", 1)[-1])
+        title = " ".join((title_el.text or "").split()) if title_el is not None else ""
+        entries.append({"arxiv_id": arxiv_id, "title": title})
+    return {"entries": entries}
+
+
+def _arxiv_default_fetch(url: str) -> dict:
+    with urllib.request.urlopen(url) as response:  # pragma: no cover - real network path
+        return _parse_arxiv_feed(response.read())
 
 
 class _BackoffMixin:
@@ -51,7 +79,9 @@ class OpenAlexProvider(_BackoffMixin, LiteratureProvider):
         self._sleep_fn = sleep_fn
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
-        data = self._fetch_with_backoff(f"https://api.openalex.org/works?search={query}")
+        data = self._fetch_with_backoff(
+            f"https://api.openalex.org/works?search={urllib.parse.quote_plus(query)}"
+        )
         return [self._to_result(r) for r in data.get("results", [])[:limit]]
 
     def paper_metadata(self, canonical_key: str) -> dict:
@@ -88,7 +118,9 @@ class SemanticScholarProvider(_BackoffMixin, LiteratureProvider):
         self._sleep_fn = sleep_fn
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
-        data = self._fetch_with_backoff(f"https://api.semanticscholar.org/graph/v1/paper/search?query={query}")
+        data = self._fetch_with_backoff(
+            f"https://api.semanticscholar.org/graph/v1/paper/search?query={urllib.parse.quote_plus(query)}"
+        )
         return [self._to_result(r) for r in data.get("data", [])[:limit]]
 
     def paper_metadata(self, canonical_key: str) -> dict:
@@ -120,7 +152,7 @@ class ArxivProvider(_BackoffMixin, LiteratureProvider):
 
     def __init__(
         self,
-        fetch: Fetch = _default_fetch,
+        fetch: Fetch = _arxiv_default_fetch,
         max_retries: int = DEFAULT_MAX_RETRIES,
         base_delay_seconds: float = DEFAULT_BASE_DELAY_SECONDS,
         sleep_fn: Callable[[float], None] = time.sleep,
@@ -131,11 +163,19 @@ class ArxivProvider(_BackoffMixin, LiteratureProvider):
         self._sleep_fn = sleep_fn
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
-        data = self._fetch_with_backoff(f"http://export.arxiv.org/api/query?search_query={query}")
+        data = self._fetch_with_backoff(
+            f"https://export.arxiv.org/api/query?search_query={urllib.parse.quote_plus(query)}"
+        )
         return [self._to_result(r) for r in data.get("entries", [])[:limit]]
 
     def paper_metadata(self, canonical_key: str) -> dict:
-        return self._to_result(self._fetch_with_backoff(f"http://export.arxiv.org/api/query?id_list={canonical_key}"))
+        data = self._fetch_with_backoff(
+            f"https://export.arxiv.org/api/query?id_list={urllib.parse.quote_plus(canonical_key)}"
+        )
+        entries = data.get("entries", [])
+        if not entries:
+            raise ProviderError(f"arxiv: no entry found for id '{canonical_key}'")
+        return self._to_result(entries[0])
 
     def citation_graph(self, canonical_key: str) -> dict:
         return {"canonical_key": canonical_key, "cited_by": []}  # arXiv has no citation graph API
@@ -168,7 +208,9 @@ class GitHubProvider(_BackoffMixin, LiteratureProvider):
         self._sleep_fn = sleep_fn
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
-        data = self._fetch_with_backoff(f"https://api.github.com/search/repositories?q={query}")
+        data = self._fetch_with_backoff(
+            f"https://api.github.com/search/repositories?q={urllib.parse.quote_plus(query)}"
+        )
         return [self._to_result(r) for r in data.get("items", [])[:limit]]
 
     def paper_metadata(self, canonical_key: str) -> dict:

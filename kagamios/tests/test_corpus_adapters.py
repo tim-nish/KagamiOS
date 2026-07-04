@@ -1,3 +1,5 @@
+import urllib.parse
+
 import pytest
 
 from kagami.corpus.adapters import (
@@ -7,6 +9,7 @@ from kagami.corpus.adapters import (
     GitHubProvider,
     OpenAlexProvider,
     SemanticScholarProvider,
+    _parse_arxiv_feed,
     resolve_provider,
 )
 from kagami.corpus.provider import LiteratureProvider, ProviderError
@@ -40,7 +43,7 @@ FIXTURES = {
     },
     "arxiv": {
         "search": {"entries": [{"arxiv_id": "2101.00001", "title": "Paper C"}]},
-        "metadata": {"arxiv_id": "2101.00001", "title": "Paper C"},
+        "metadata": {"entries": [{"arxiv_id": "2101.00001", "title": "Paper C"}]},
         "citations": {},
     },
     "github": {
@@ -139,3 +142,69 @@ def test_github_credential_comes_from_environment(monkeypatch):
     monkeypatch.setenv("KAGAMI_GITHUB_TOKEN", "ghp_secret")
     provider = GitHubProvider(fetch=_fake_fetch("github"))
     assert provider._token == "ghp_secret"
+
+
+@pytest.mark.parametrize("adapter_cls", ADAPTER_CLASSES)
+def test_multi_word_queries_are_url_encoded_not_left_as_raw_spaces(adapter_cls):
+    """Bug found in the first live smoke test: an un-encoded space in the
+    query string is an invalid URL (`http.client.InvalidURL`), so every
+    multi-word search crashed before a single request went out."""
+    captured = {}
+
+    def capturing_fetch(url: str) -> dict:
+        captured["url"] = url
+        return FIXTURES[adapter_cls.name]["search"]
+
+    provider = adapter_cls(fetch=capturing_fetch)
+    provider.search("in-context learning transformers")
+
+    assert " " not in captured["url"]
+    assert "in-context learning transformers" in urllib.parse.unquote_plus(captured["url"])
+
+
+ARXIV_ATOM_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2101.00001v2</id>
+    <title>  A Paper
+      With A Wrapped Title  </title>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2202.03334v1</id>
+    <title>Another Paper</title>
+  </entry>
+</feed>"""
+
+
+def test_parse_arxiv_feed_strips_version_suffix_and_normalizes_whitespace():
+    """Bug found in the first live smoke test: arXiv's real API returns an
+    Atom/XML feed, not JSON, so `json.loads` on the raw response crashed
+    every arXiv search and metadata lookup before a single result was ever
+    returned to the Cartographer/Scout."""
+    parsed = _parse_arxiv_feed(ARXIV_ATOM_SAMPLE)
+    assert parsed == {
+        "entries": [
+            {"arxiv_id": "2101.00001", "title": "A Paper With A Wrapped Title"},
+            {"arxiv_id": "2202.03334", "title": "Another Paper"},
+        ]
+    }
+
+
+def test_parse_arxiv_feed_with_no_entries_returns_an_empty_list():
+    empty_feed = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+    assert _parse_arxiv_feed(empty_feed) == {"entries": []}
+
+
+def test_arxiv_paper_metadata_extracts_the_first_entry_from_the_feed_shaped_response():
+    provider = ArxivProvider(fetch=lambda url: {"entries": [{"arxiv_id": "2101.00001", "title": "Paper C"}]})
+    assert provider.paper_metadata("2101.00001") == {
+        "canonical_key": "2101.00001",
+        "title": "Paper C",
+        "source": "arxiv",
+    }
+
+
+def test_arxiv_paper_metadata_raises_provider_error_when_the_id_is_not_found():
+    provider = ArxivProvider(fetch=lambda url: {"entries": []})
+    with pytest.raises(ProviderError):
+        provider.paper_metadata("9999.99999")
