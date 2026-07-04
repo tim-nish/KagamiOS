@@ -80,34 +80,35 @@ def emit_batch(run_dir: Path, questions: list[dict]) -> dict:
 
     now = utc_now_iso()
     ids = []
-    for question in questions:
-        q_id = mint_id("q-")
-        entry = {
-            "id": q_id,
-            "target": question.get("target") or "",
-            "leverage_class": question.get("leverage_class") or "",
-            "form": question.get("form"),
-            "answer": question.get("default"),
-            "default_applied": False,
-            "consumed_by": [],
-            "asked_at": now,
-            "answered_at": None,
-            "version": 1,
-        }
-        _write_entry(run_dir, entry)
-        append_event(
-            run_dir,
-            "question_event",
-            {
-                "kind": "asked",
+    with acquire_run_lock(run_dir / ".lock"):
+        for question in questions:
+            q_id = mint_id("q-")
+            entry = {
                 "id": q_id,
-                "target": entry["target"],
-                "leverage_class": entry["leverage_class"],
-                "form": entry["form"],
-                "unprimed": bool(question.get("unprimed")),
-            },
-        )
-        ids.append(q_id)
+                "target": question.get("target") or "",
+                "leverage_class": question.get("leverage_class") or "",
+                "form": question.get("form"),
+                "answer": question.get("default"),
+                "default_applied": False,
+                "consumed_by": [],
+                "asked_at": now,
+                "answered_at": None,
+                "version": 1,
+            }
+            _write_entry(run_dir, entry)
+            append_event(
+                run_dir,
+                "question_event",
+                {
+                    "kind": "asked",
+                    "id": q_id,
+                    "target": entry["target"],
+                    "leverage_class": entry["leverage_class"],
+                    "form": entry["form"],
+                    "unprimed": bool(question.get("unprimed")),
+                },
+            )
+            ids.append(q_id)
 
     return {"ok": True, "ids": ids}
 
@@ -127,12 +128,13 @@ def apply_deferred_default(run_dir: Path, target: str, leverage_class: str, defa
         "answered_at": utc_now_iso(),
         "version": 1,
     }
-    _write_entry(run_dir, entry)
-    append_event(
-        run_dir,
-        "question_event",
-        {"kind": "deferred_default_applied", "id": q_id, "target": target},
-    )
+    with acquire_run_lock(run_dir / ".lock"):
+        _write_entry(run_dir, entry)
+        append_event(
+            run_dir,
+            "question_event",
+            {"kind": "deferred_default_applied", "id": q_id, "target": target},
+        )
     return {"ok": True, "id": q_id}
 
 
@@ -143,8 +145,8 @@ def answer_question(run_dir: Path, q_id: str, answer) -> dict:
         entry["default_applied"] = False
         entry["answered_at"] = utc_now_iso()
         _write_entry(run_dir, entry)
+        append_event(run_dir, "question_event", {"kind": "answered", "id": q_id})
 
-    append_event(run_dir, "question_event", {"kind": "answered", "id": q_id})
     return {"ok": True, "id": q_id, "version": entry["version"]}
 
 
@@ -157,9 +159,11 @@ def revise_answer(run_dir: Path, q_id: str, new_answer) -> dict:
         entry["answered_at"] = utc_now_iso()
         entry["version"] += 1
         _write_entry(run_dir, entry)
+        append_event(
+            run_dir, "question_event", {"kind": "revised", "id": q_id, "version": entry["version"]}
+        )
 
     staled = artifact.mark_dependents_stale(run_dir, q_id, entry["version"])
-    append_event(run_dir, "question_event", {"kind": "revised", "id": q_id, "version": entry["version"]})
     return {"ok": True, "id": q_id, "version": entry["version"], "staled": staled}
 
 
@@ -178,16 +182,16 @@ def consume_answer(run_dir: Path, q_id: str, consuming_type: str, consuming_id: 
         if consuming_ref not in entry["consumed_by"]:
             entry["consumed_by"].append(consuming_ref)
             _write_entry(run_dir, entry)
+            append_event(
+                run_dir,
+                "question_event",
+                {"kind": "consumed", "id": q_id, "consuming_artifact": consuming_id},
+            )
 
     staled = (
         artifact.mark_dependents_stale(run_dir, consuming_id, pin_result["version"])
         if pin_result["changed"]
         else []
-    )
-    append_event(
-        run_dir,
-        "question_event",
-        {"kind": "consumed", "id": q_id, "consuming_artifact": consuming_id},
     )
     return {"ok": True, "elicited_from": ledger_ref, "staled": staled}
 
@@ -203,17 +207,17 @@ def apply_default_for_unanswered_blocker(
         entry["default_applied"] = True
         entry["answered_at"] = utc_now_iso()
         _write_entry(run_dir, entry)
+        append_event(
+            run_dir,
+            "question_event",
+            {"kind": "blocker_defaulted", "id": q_id, "artifact_id": artifact_id},
+        )
 
     ledger_ref = f"{q_id}@v{entry['version']}"
     artifact.pin_elicited_from(run_dir, artifact_type, artifact_id, ledger_ref)
     artifact.flag_provisional(run_dir, artifact_type, artifact_id)
     provisional_count = artifact.count_provisional(run_dir)
 
-    append_event(
-        run_dir,
-        "question_event",
-        {"kind": "blocker_defaulted", "id": q_id, "artifact_id": artifact_id},
-    )
     return {"ok": True, "id": q_id, "provisional_count": provisional_count}
 
 
@@ -227,8 +231,8 @@ def resolve_via_edit(run_dir: Path, q_id: str) -> dict:
         entry["default_applied"] = False
         entry["answered_at"] = utc_now_iso()
         _write_entry(run_dir, entry)
+        append_event(run_dir, "question_event", {"kind": "resolved_via_edit", "id": q_id})
 
-    append_event(run_dir, "question_event", {"kind": "resolved_via_edit", "id": q_id})
     return {"ok": True, "id": q_id, "already_resolved": False}
 
 

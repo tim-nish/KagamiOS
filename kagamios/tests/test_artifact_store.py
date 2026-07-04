@@ -6,12 +6,14 @@ import pytest
 from kagami.store.artifact import (
     ArtifactError,
     RejectedWriteError,
+    accept_artifact,
     claim_section,
     create_artifact,
     mark_dependents_stale,
     missing_required_metadata_fields,
     pin_dependency,
     read_version,
+    review_artifact,
     scan,
     validate_can_accept,
     attempt_ai_write,
@@ -84,12 +86,11 @@ def test_attempt_ai_write_refused_for_schema_human_field_and_logs_event(tmp_path
     with pytest.raises(RejectedWriteError):
         attempt_ai_write(tmp_path, "gap-register", result["id"], "meaningful_to_me", "suspicious")
 
-    events = (tmp_path / "events.jsonl").read_text().splitlines()
-    assert len(events) == 1
-    event = json.loads(events[0])
-    assert event["family"] == "artifact_event"
-    assert event["kind"] == "rejected_write"
-    assert event["field"] == "meaningful_to_me"
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    rejected = [e for e in events if e["kind"] == "rejected_write"]
+    assert len(rejected) == 1
+    assert rejected[0]["family"] == "artifact_event"
+    assert rejected[0]["field"] == "meaningful_to_me"
 
 
 def test_attempt_ai_write_succeeds_for_ai_authored_section(tmp_path):
@@ -245,7 +246,148 @@ def test_mark_dependents_stale_ignores_artifacts_already_current(tmp_path):
     assert unrelated["id"] not in staled
 
 
+def test_review_artifact_flips_status_and_bumps_version(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+
+    outcome = review_artifact(tmp_path, "gap-register", result["id"])
+    assert outcome["ok"] is True
+    assert outcome["version"] == 2
+
+    frontmatter, _ = read_version(tmp_path, "gap-register", result["id"], 2)
+    assert frontmatter["status"] == "reviewed"
+
+
+def test_review_artifact_refuses_non_draft_status(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+    review_artifact(tmp_path, "gap-register", result["id"])
+
+    with pytest.raises(ArtifactError):
+        review_artifact(tmp_path, "gap-register", result["id"])
+
+
+def test_accept_artifact_refuses_a_draft_that_was_never_reviewed(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+
+    with pytest.raises(ArtifactError):
+        accept_artifact(tmp_path, "gap-register", result["id"], "\n".join(f"l{i}" for i in range(6)))
+
+
+def test_accept_artifact_stores_summary_in_the_new_version_and_flips_status(tmp_path):
+    result = create_artifact(
+        tmp_path, "gap-register", _base_fields(summary=""), sections={"statement": "x"}
+    )
+    review_artifact(tmp_path, "gap-register", result["id"])
+    summary = "\n".join(f"line {i}" for i in range(6))
+
+    outcome = accept_artifact(tmp_path, "gap-register", result["id"], summary)
+    assert outcome["ok"] is True
+    assert outcome["version"] == 3
+
+    frontmatter, _ = read_version(tmp_path, "gap-register", result["id"], 3)
+    assert frontmatter["summary"] == summary
+    assert frontmatter["status"] == "accepted"
+
+    v1_frontmatter, _ = read_version(tmp_path, "gap-register", result["id"], 1)
+    assert v1_frontmatter["summary"] == ""
+
+
+def test_accept_artifact_rejects_summary_outside_five_to_ten_lines(tmp_path):
+    result = create_artifact(tmp_path, "gap-register", _base_fields(), sections={"statement": "x"})
+    review_artifact(tmp_path, "gap-register", result["id"])
+
+    with pytest.raises(ArtifactError):
+        accept_artifact(tmp_path, "gap-register", result["id"], "only one line")
+
+    too_long = "\n".join(f"line {i}" for i in range(11))
+    with pytest.raises(ArtifactError):
+        accept_artifact(tmp_path, "gap-register", result["id"], too_long)
+
+
 def _load_meta(art_dir):
     import yaml
 
     return yaml.safe_load((art_dir / "meta.yaml").read_text())
+
+
+def _accept_a_gap_register(run_dir):
+    gap = create_artifact(run_dir, "gap-register", _base_fields(), sections={"statement": "x"})
+    review_artifact(run_dir, "gap-register", gap["id"])
+    return accept_artifact(run_dir, "gap-register", gap["id"], "\n".join(f"line {i}" for i in range(6)))
+
+
+def test_create_artifact_refuses_candidate_direction_before_gap_register_accepted(tmp_path):
+    outcome = create_artifact(
+        tmp_path, "candidate-direction", _base_fields(), sections={"direction": "a premature pitch"}
+    )
+
+    assert outcome["ok"] is False
+    assert not (tmp_path / "artifacts" / "candidate-direction").exists()
+
+    quarantine_path = Path(outcome["quarantined_as"])
+    assert quarantine_path.parent == tmp_path / "premature_ideas"
+    assert quarantine_path.is_file()
+    assert "a premature pitch" in quarantine_path.read_text()
+
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    quarantined = [e for e in events if e["kind"] == "premature_idea_quarantined"]
+    assert len(quarantined) == 1
+    assert quarantined[0]["family"] == "artifact_event"
+    assert quarantined[0]["artifact_type"] == "candidate-direction"
+
+
+def test_create_artifact_succeeds_for_candidate_direction_after_gap_register_accepted(tmp_path):
+    _accept_a_gap_register(tmp_path)
+
+    outcome = create_artifact(
+        tmp_path, "candidate-direction", _base_fields(), sections={"direction": "a real candidate"}
+    )
+
+    assert outcome["ok"] is True
+    art_dir = tmp_path / "artifacts" / "candidate-direction" / outcome["id"]
+    assert art_dir.is_dir()
+
+
+def test_candidate_direction_created_timestamp_never_precedes_gap_register_acceptance(tmp_path):
+    accepted = _accept_a_gap_register(tmp_path)
+    gap_id = _first_gap_register_id(tmp_path)
+    accepted_frontmatter, _ = read_version(tmp_path, "gap-register", gap_id, accepted["version"])
+
+    outcome = create_artifact(
+        tmp_path, "candidate-direction", _base_fields(), sections={"direction": "a real candidate"}
+    )
+
+    candidate_frontmatter, _ = read_version(tmp_path, "candidate-direction", outcome["id"], 1)
+    assert candidate_frontmatter["created"] >= accepted_frontmatter["updated"]
+
+
+def _first_gap_register_id(run_dir):
+    return next((run_dir / "artifacts" / "gap-register").iterdir()).name
+
+
+def test_accepting_a_gap_register_emits_the_mvp_terminal_event(tmp_path):
+    _accept_a_gap_register(tmp_path)
+    gap_id = _first_gap_register_id(tmp_path)
+
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    terminal_events = [e for e in events if e["family"] == "terminal_event"]
+    assert len(terminal_events) == 1
+    assert terminal_events[0]["kind"] == "mvp_terminal_reached"
+    assert terminal_events[0]["artifact_id"] == gap_id
+
+
+def test_accepting_a_dissolution_memo_emits_a_terminal_event_with_the_same_standing(tmp_path):
+    memo = create_artifact(
+        tmp_path,
+        "dissolution-memo",
+        _base_fields(what_dissolved_it=["art-1@v1"], depends_on=["art-1@v1"]),
+        sections={"intuition_summary": "x", "what_was_learned": "y", "revival_conditions": "z"},
+    )
+    review_artifact(tmp_path, "dissolution-memo", memo["id"])
+    accept_artifact(tmp_path, "dissolution-memo", memo["id"], "\n".join(f"line {i}" for i in range(6)))
+
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    terminal_events = [e for e in events if e["family"] == "terminal_event"]
+    assert len(terminal_events) == 1
+    assert terminal_events[0]["kind"] == "dissolution_reached"
+    assert terminal_events[0]["terminal"] == "dissolved"
+    assert terminal_events[0]["artifact_id"] == memo["id"]

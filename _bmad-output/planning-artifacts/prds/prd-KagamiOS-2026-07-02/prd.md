@@ -10,7 +10,7 @@ updated: 2026-07-03
 
 ## 0. Document Purpose
 
-This PRD translates the normative, already-finalized design in `docs-spec/` into product-requirement form for downstream BMAD planning (architecture, epics). It is a translation, not a redesign: every Feature, FR, and Non-Goal below traces to a specific `docs-spec/` document, and where this PRD had to make a PM-framing call the spec itself doesn't dictate (wording, grouping, journey invention), the call is tagged `[ASSUMPTION]` inline and indexed in §10. One product-level requirement originates here rather than in `docs-spec/` (which is platform-silent): KagamiOS ships as a **Claude Code plugin in the BMAD ecosystem** — see §5's Platform constraint (researcher decision, 2026-07-02). Deep mechanism detail (schema field lists, dispatch-table tiers, cache guidance, rejected-alternative rationale) that would pad this document without changing what's built lives in `addendum.md`; `docs-spec/` itself remains the authoritative machine-readable source and is not duplicated here. FRs are numbered globally (FR-1 through FR-N) and grouped by mechanism so downstream architecture work can address one subsystem at a time.
+This PRD translates the normative, already-finalized design in `docs-spec/` into product-requirement form for downstream BMAD planning (architecture, epics). It is a translation, not a redesign: every Feature, FR, and Non-Goal below traces to a specific `docs-spec/` document, and where this PRD had to make a PM-framing call the spec itself doesn't dictate (wording, grouping, journey invention), the call is tagged `[ASSUMPTION]` inline and indexed in §10. One product-level requirement originates here rather than in `docs-spec/` (which is platform-silent): KagamiOS ships as a **Claude Code plugin in the BMAD ecosystem** — see §5's Platform constraint (researcher decision, 2026-07-02). A second product-level addition originates from implementation-readiness review rather than `docs-spec/`: §4.8's driver-side FRs (FR-48, FR-49), added 2026-07-03 after Epics 1–6 shipped the deterministic core with no epic ever covering the harness that drives it — see §4.8's description for the gap this closes. Deep mechanism detail (schema field lists, dispatch-table tiers, cache guidance, rejected-alternative rationale) that would pad this document without changing what's built lives in `addendum.md`; `docs-spec/` itself remains the authoritative machine-readable source and is not duplicated here. FRs are numbered globally (FR-1 through FR-N) and grouped by mechanism so downstream architecture work can address one subsystem at a time.
 
 ## 1. Vision
 
@@ -382,6 +382,7 @@ At each gate and at the terminal, the system computes question economics, a toke
 **Consequences (testable):**
 - Re-running the metric computation over the same event log always produces the same numbers.
 - The provisional count shown at Decide (FR-20) matches the derived metric exactly.
+- At each gate, the token ledger is compared against a researcher-set soft limit in `config.yaml`; exceeding it adds a warning to the decision block, never a block on proceeding — this is deterministic reporting at an existing checkpoint, not the live budget enforcement §5 defers (added 2026-07-03, §4.8).
 
 #### FR-38: Cross-run corpus is derived and rebuildable, never ground truth
 Run summaries accumulate into a local analytics store used for cross-run analysis; this store can be deleted and rebuilt from the per-run event logs at any time without data loss.
@@ -454,14 +455,32 @@ The Design Audit Report loop (FR-40, FR-41) may recommend process-form changes b
 - No Design Audit Report recommendation, however adopted, ever changes the human-only status of a constitutive-triad field or removes either unprimed question from the run.
 - This exemption is checkable directly against the audit-adoption log (FR-40): an adopted change touching either category is a process violation, not a valid outcome.
 
+### 4.8 Driver & Harness Shell
+**Description:** `[ASSUMPTION: this section originates from implementation-readiness review, not docs-spec/, added 2026-07-03 — see §0.]` Sections 4.1–4.6 specify a deterministic core that refuses illegal outcomes; something outside it has to actually drive a run — open it, dispatch roles, call models, and report back. Most of that driver behavior is already specified as product requirement (FR-17..24's elicitation loop, FR-25..29's role charters, FR-33/34's read-set boundaries); this section covers the two driver-side behaviors that surfaced as gaps only once the harness itself was scoped for implementation, and that need mechanical enforcement rather than prompt convention to be trustworthy at all.
+
+#### FR-48: Refusal-retry ceiling with mandatory escalation
+The system tracks consecutive identical refusals against the same target; past a fixed ceiling, the next identical attempt returns a distinct escalation status instead of an ordinary refusal, forcing a stop-and-surface-to-the-researcher outcome rather than an unbounded retry loop.
+
+**Consequences (testable):**
+- N consecutive identical refusals against the same target always produce the escalation response on attempt N+1 — never a silent Nth ordinary refusal, and never an N+2th retry.
+- The escalation is enforced mechanically, not by harness/prompt logic — a scripted driver issuing the same call sequence produces the same escalation.
+
+#### FR-49: Every model invocation is reported through a validated entrypoint
+Whatever drives the system reports every model call it makes — role, operation class, model tier, token counts, cache-hit status — through a validated entrypoint immediately after the call; the deterministic core never invokes models itself and never infers these fields.
+
+**Consequences (testable):**
+- Every `llm_call` event in the run event log (FR-36) was written by this entrypoint, not fabricated or inferred after the fact.
+- A model call made but never reported is invisible to the token ledger (FR-37) and the charter audit (FR-29) — an accepted, logged gap (self-reporting is detect-and-audit, not prevent), never silently corrected or hidden.
+
 ## 5. Cross-Cutting NFRs
 
 - **Platform: Claude Code plugin, BMAD-ecosystem native** (researcher decision, 2026-07-02). KagamiOS installs and runs as a Claude Code plugin, co-installable with BMAD and following its layout conventions (skills + deterministic scripts + hooks). The mechanical guarantees in §4 (write-guards, generation windows, ASK batching, event logging) are implemented as deterministic code *inside* the plugin — a script chokepoint that is the only sanctioned mutation path, with hooks blocking direct AI writes to the artifact store — never as prompt convention. Two accepted v1 trade-offs of this platform: main-thread token/prompt accounting is incomplete, and scheduler obedience is detect-and-audit rather than prevent; both are acceptable only because illegal state mutation remains mechanically impossible and every deviation is auditable. The deterministic core must remain standalone-capable as a library, so a future non-plugin runtime is an adapter, not a rewrite.
 - **Auditability by construction.** Every mechanically enforceable rule in §4 (write-guards, generation windows, role charters, gate approvals) must be checkable against the run event log after the fact, not just assertable as an intended behavior. This is why FR-29, FR-31, and FR-36 exist as explicit requirements rather than being left as implementation detail.
 - **Determinism before generation, always.** Wherever a value can be computed deterministically (staleness, provisional counts, derived metrics, per-run summaries), it must be computed deterministically — never inferred by a model call. This governs FR-13, FR-32, FR-37.
 - **Privacy is local-first by default, not opt-out.** Sharing is opt-in and content-stripped, never the reverse (FR-39). No design-analytics feature may require sharing to function for a single researcher.
-- **Cost discipline via retrieval boundaries, not budgets.** v1 controls token/compute cost primarily through the context loading contract and retrieval boundary (FR-33, FR-34), not through live budget enforcement — machine-side budgets and meters are explicitly deferred (see `addendum.md` A4, trigger O6).
+- **Cost discipline via retrieval boundaries, not budgets.** v1 controls token/compute cost primarily through the context loading contract and retrieval boundary (FR-33, FR-34), not through live budget enforcement — machine-side budgets and meters are explicitly deferred (see `addendum.md` A4, trigger O6). FR-37's gate-time soft-limit warning (§4.8) is deterministic reporting at an existing checkpoint, not live enforcement, and does not itself trigger O6 — it is intended to produce the usage evidence O6's adoption trigger is waiting for.
 - **No silent data loss.** Superseded artifact versions are retained (FR-10); human-touched spans are never silently overwritten (FR-12); rejected writes are logged, not dropped (FR-31).
+- **Provider resilience.** Literature-provider adapters (FR-25) implement backoff/retry against each provider's documented rate limits so transient throttling surfaces as a retry, never as a run-ending error (added 2026-07-03, §4.8's driver scope).
 
 ## 6. Non-Goals (Explicit)
 

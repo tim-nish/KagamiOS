@@ -4,6 +4,7 @@ inputDocuments:
   - _bmad-output/specs/spec-kagamios/SPEC.md
   - _bmad-output/planning-artifacts/prds/prd-KagamiOS-2026-07-02/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-KagamiOS-2026-07-02/ARCHITECTURE-SPINE.md
+  - _bmad-output/planning-artifacts/change-signal-epic7-2026-07-03.md
 ---
 
 # KagamiOS - Epic Breakdown
@@ -134,6 +135,12 @@ FR-46: No direction-shaped content may be generated until the run-level Gap Regi
 
 FR-47: Constitutive-triad fields and the two unprimed E6 questions are permanently exempt from Design Audit statistical demotion. [v1-schema-only — the `audit_exempt: permanent` flag ships now; the loop that could threaten it (FR-40/41) is deferred]
 
+**4.8 Driver & Harness Shell** *(added 2026-07-03 — Epics 1-6 shipped the deterministic core with no epic covering the harness that drives it; see change-signal-epic7-2026-07-03.md)*
+
+FR-48: The chokepoint tracks consecutive identical refusals per `(entrypoint, target)`; the attempt past a configured ceiling returns a distinct `requires_researcher` status instead of an ordinary refusal, forcing a stop-and-surface outcome rather than an unbounded retry loop. [v1]
+
+FR-49: The harness reports every model call it makes — role, operation class, model tier, token counts, cache-hit — through a validated `kagami` entrypoint immediately after the call; the core never invokes models itself and never infers these fields. [v1]
+
 ### NonFunctional Requirements
 
 NFR1: **Platform.** KagamiOS installs and runs as a Claude Code plugin, co-installable with BMAD, following its layout conventions (skills + deterministic scripts + hooks). Mechanical guarantees are deterministic code inside the plugin — a script chokepoint is the only sanctioned mutation path, hooks block direct AI writes — never prompt convention. Accepted v1 trade-offs: main-thread token/prompt accounting is incomplete; scheduler obedience is detect-and-audit rather than prevent.
@@ -147,6 +154,8 @@ NFR4: **Privacy is local-first by default, not opt-out.** Sharing is opt-in and 
 NFR5: **Cost discipline via retrieval boundaries, not budgets.** v1 controls token/compute cost through the context loading contract and retrieval boundary (FR-33, FR-34), not live budget enforcement; machine-side budgets/meters are explicitly deferred.
 
 NFR6: **No silent data loss.** Superseded artifact versions are retained (FR-10); human-touched spans are never silently overwritten (FR-12); rejected writes are logged, not dropped (FR-31).
+
+NFR7: **Provider resilience** *(added 2026-07-03)*. Literature-provider adapters implement backoff/retry against each provider's documented rate limits so transient throttling surfaces as a retry, never as a run-ending error.
 
 ### Additional Requirements
 
@@ -189,7 +198,10 @@ Plus the user-project output tree under a configurable root (`_kagami-output/con
 - AD-22: Chokepoint entrypoints never invoke models directly — an operation either demands model output as a schema-validated input argument, or returns a typed `needs_llm` work item the harness fulfills and resubmits.
 - AD-23: Every invocation is `uv run --project ${CLAUDE_PLUGIN_ROOT} kagami <cmd>`; every write stamps `schema_registry_version`; the chokepoint refuses to mutate a run written under a newer registry; `kagami migrate` is the only path that rewrites old runs.
 - AD-24: `kagami monitor` executes monitoring config as a sweep at run open / skill activation — never a background daemon.
-- AD-25: The core is tested at the CLI entrypoint boundary with a scripted driver replacing the harness; a golden minimal-run fixture exercises windows, guards, staleness, E6 ordering, scan-before-write, lease/crash recovery.
+- AD-25: The core is tested at the CLI entrypoint boundary (`kagami/` and `hooks/` only) with a scripted driver replacing the harness; a golden minimal-run fixture exercises windows, guards, staleness, E6 ordering, scan-before-write, lease/crash recovery.
+- AD-26 *(added 2026-07-03)*: Driver operational discipline. The refusal-retry ceiling (FR-48) is a pure function over the tail of `events.jsonl`, no new store — `(entrypoint, target)` identity, resets on any intervening non-refusal event. `llm_call` reporting (FR-49) goes through the named entrypoint `kagami report llm-call`, harness-minted `--call-id` for idempotency, duplicate call-ids refused. `kagami metrics`'s decision block (FR-37) adds a gate-time soft-limit warning — reporting, never live budget enforcement (PRD §5 NFR / addendum A4 stay intact).
+- AD-27 *(added 2026-07-03)*: Testing convention for prompt artifacts. `skills/` and `agents/` cannot be pytest-verified (AD-25 stops at `kagami/`/`hooks/`); a driver story's Definition of Done instead requires a recorded Claude Code session transcript, a charter checklist review, and — for the walking-skeleton and toy-run stories — the golden toy-run protocol (fixed topic/corpus/config, event log checked against a pre-agreed rubric).
+- **v1-driver amendments (2026-07-03):** AD-4's `kagami session open/close` and single-use engagement tokens are deferred — role attribution collapses to one self-declared `--role` argument shared by content writes and AD-26's telemetry, with no session binding; the resulting weakening is logged as a new AD-11 honest-gap entry, not silently accepted. AD-11's "no runtime behavior reads the log back" claim is clarified: `kagami metrics` reading the raw log to *report* (FR-37, always allowed) is distinct from a *behavior-altering* read (FR-5's gate-loosening, the one sanctioned exception) — AD-26's gate-time warning is the former. AD-1 gained a note distinguishing enforceable core guarantees from AD-26(b)'s harness-side reporting obligation, which the core cannot compel, only leave visibly uncredited if skipped.
 
 **Integration / infrastructure requirements (Stack table):**
 - Python ≥3.12; `uv` toolchain shared with BMAD; plugin ships `pyproject.toml`.
@@ -254,6 +266,8 @@ FR-44: Epic 1 - Decide-gate exit-criteria schema (non-preclusion; v2 flow)
 FR-45: Epic 2 - depth budgets set at Map exit
 FR-46: Epic 4 - generation-window enforcement, proven end-to-end at the Gap Register boundary
 FR-47: Epic 1 - permanent audit-exemption flag on constitutive-triad + E6 fields
+FR-48: Epic 7 - refusal-retry ceiling with mandatory escalation
+FR-49: Epic 7 - llm_call reporting through a validated entrypoint
 
 NFR1: Epic 1 - platform (plugin runtime, chokepoint architecture)
 NFR2: Epic 1 - auditability by construction (mechanism); proven end-to-end in Epic 6
@@ -261,6 +275,7 @@ NFR3: Epic 1 - determinism before generation
 NFR4: Epic 6 - privacy is local-first by default
 NFR5: Epic 2 - cost discipline via retrieval boundaries
 NFR6: Epic 1 - no silent data loss
+NFR7: Epic 7 - provider resilience (backoff/retry against documented rate limits)
 
 ## Epic List
 
@@ -292,6 +307,12 @@ Everything logged since Epic 1 becomes actually useful here: deterministic per-r
 **NFRs:** NFR4
 
 **Explicitly out of epic scope (deferred past MVP, per Architecture Spine `deferred_frs`):** FR-38 (cross-run analytics store), FR-40 (Design Audit Report loop), FR-41 (anti-Goodhart pairing) — all three require accumulated data from multiple completed v1 runs that MVP itself cannot produce. The run-1 schema commitments that make them possible later (AD-14) are already covered by Epic 1's FR-14/FR-47 stories.
+
+### Epic 7: Driver & Harness Shell
+Epics 1–6 built a deterministic core with 337 passing tests but no epic ever covered the harness that actually drives it — no `skills/kagami-discovery/SKILL.md`, no `agents/`, no producer for the `llm_call` events Epic 6's metrics and charter audit depend on. This epic closes that structural gap rather than opening new product surface: the Interviewer skill and the five role agent definitions (Scout, Cartographer, Historian, Skeptic, worker) specified since Epic 1's AD-4 are actually built and drive a real investigation through the existing core, and the two driver-side guarantees that only surfaced once the harness was scoped for implementation — a refusal-retry ceiling that stops runaway retries instead of the core looping silently, and mandatory `llm_call` reporting so Epic 6's token ledger and charter audit see real data instead of zero — ship as new architecture (AD-26, AD-27) and two new FRs. The epic ends with a golden toy-run dogfooding pass whose pass/fail verdict, not story completion, is the actual readiness gate for using KagamiOS on real research.
+**FRs covered:** FR-48, FR-49 (operationalizes FR-17..29, FR-33/34, FR-37 through an actual harness for the first time — those FRs were already structurally covered by Epics 1/2/3/6)
+**NFRs:** NFR7
+**Explicitly out of Epic 7 scope (deferred, per Architecture Spine AD-4's v1-driver amendment):** `kagami session open/close` and single-use engagement tokens — role attribution is self-declared and trusted for v1-driver instead. Revisit trigger: a role writing off-charter content that a token check would have caught, surfaced during Story 7.5's toy run.
 
 ## Epic 1: Plugin Foundation, Chokepoint Substrate & First Framed Investigation
 
@@ -964,3 +985,147 @@ So that I never have to trade privacy for the system's own self-improvement.
 **Given** the privacy flag in `config.yaml`
 **When** I inspect it
 **Then** it defaults to off and can only be changed by my own explicit edit (FR-39, AD-12)
+
+## Epic 7: Driver & Harness Shell
+
+Epics 1–6 built a deterministic core with no epic covering the harness that drives it. This epic builds the Interviewer skill, the role agent definitions, and the two driver-side guarantees (refusal-retry ceiling, `llm_call` reporting) that surfaced only once the harness was scoped for implementation — and ends with a golden toy-run dogfooding pass whose verdict gates real use.
+
+### Story 7.1: Walking Skeleton — the Interviewer Drives One Real Traversal
+
+As a researcher,
+I want the harness itself — `skills/kagami-discovery/SKILL.md` plus agent definitions — to actually exist and drive a run through Frame,
+So that the deterministic core built in Epics 1–6 is something I can actually use, not just something that passes its own test suite.
+
+**Acceptance Criteria:**
+
+**Given** the plugin is installed
+**When** I invoke the Interviewer skill
+**Then** it resolves `CLAUDE_PLUGIN_ROOT` and opens a run via `kagami run open` without any direct `Write`/`Edit`/`Bash` touching the output root (AD-1, AD-23)
+
+**Given** a live Claude Code session with the plugin's PreToolUse hook active
+**When** the skill's own conversational flow is driven end-to-end, including any point where it might be tempted to write output-root content directly
+**Then** the hook denies any such attempt — verified in a real session, not only against recorded payloads, since AD-25's suite covers `kagami/` and `hooks/` only, never the skill itself (AD-2, AD-27)
+
+**Given** the hook script itself fails to start (bad `CLAUDE_PLUGIN_ROOT`, `uv` cold-start error)
+**When** a `Write`/`Edit`/`Bash` call targets the output root during that failure
+**Then** the failure mode is observed and documented — it must not silently fail open (AD-2, AD-27)
+
+**Given** the walking skeleton drives a run
+**When** it completes a full Frame traversal (Intuition Note through accepted Inquiry Frame)
+**Then** every mechanical guarantee Story 1.7 already proved against a scripted driver is exercised for the first time through the real harness (AD-25 boundary, AD-27)
+
+**Given** this story's Definition of Done
+**When** it is reviewed
+**Then** it includes a recorded Claude Code session transcript demonstrating the full traversal, attached to the PR — the AD-27 verification path, since no CI suite substitutes for it here
+
+### Story 7.2: `llm_call` Reporting and Launch-Time Model Resolution
+
+As a researcher,
+I want every model call my run makes to be reported and priced, and the model actually used for each role to come from my own config,
+So that my token ledger reflects reality and I'm not silently locked into whatever model was hard-coded at build time.
+
+**Acceptance Criteria:**
+
+**Given** `schemas/dispatch.yaml`
+**When** I inspect it
+**Then** it maps every operation class to a tier — deterministic / deterministic-ML / cheap-model / frontier-model (AD-12)
+
+**Given** `config.yaml`'s tier→model map
+**When** the skill launches a role's subagent
+**Then** the model is resolved at launch time from `dispatch.yaml` + `config.yaml` — no call site names a concrete model (AD-12)
+
+**Given** the harness makes a model call
+**When** the call returns
+**Then** the harness calls `kagami report llm-call` immediately afterward with `role`, `operation_class`, `model_tier`, token counts, cache-hit, and a harness-minted `--call-id` (FR-49, AD-26)
+
+**Given** a `--call-id` that already appears among the run's recent `llm_call` events
+**When** it is reported again
+**Then** the chokepoint refuses the duplicate — the ledger is never double-inflated (AD-26)
+
+**Given** a model call the harness never reports
+**When** I inspect the token ledger
+**Then** that call is invisible to it — a logged AD-11 honest-gap, not a silent correction (FR-49, AD-11)
+
+**Given** a completed gate
+**When** I inspect the decision block
+**Then** it includes a warning field when the cumulative token ledger crosses my configured soft limit, and never blocks progress regardless of the limit (FR-37, AD-26)
+
+### Story 7.3: Role Agent Definitions with Read-Set-Compliant Context
+
+As a researcher,
+I want each role — Scout, Cartographer, Historian, Skeptic, worker — to actually exist as a Claude Code subagent restricted to its own charter and its own read set,
+So that the role contracts Epics 2/3/6 already proved auditable are also the roles actually running my investigation.
+
+**Acceptance Criteria:**
+
+**Given** `agents/`
+**When** I inspect it
+**Then** Scout, Cartographer, Historian, Skeptic, and worker each exist as a subagent definition with role-restricted tools — only Scout's definition includes search tools (FR-25, AD-4)
+
+**Given** a role's subagent is invoked
+**When** its context is assembled
+**Then** it is built from the read-set table already governing FR-15/FR-33/FR-34, not an ad hoc prompt (AD-4)
+
+**Given** `kagami session open/close` and engagement tokens are deferred (AD-4's v1-driver amendment)
+**When** a role writes content
+**Then** it supplies a self-declared `--role` argument that must be one of the schema-registry-enumerated roles, refused otherwise — the same trust boundary as FR-49's telemetry role, no separate join key between the two (AD-4, AD-26)
+
+**Given** the Skeptic role specifically
+**When** it is invoked
+**Then** its context excludes the target artifact's authoring conversation, matching FR-27's fresh-context requirement — now exercised through the real subagent rather than Story 3.2's test fixture
+
+**Given** this story's Definition of Done
+**When** it is reviewed
+**Then** it includes a checklist review against each role's charter (AD-27) confirming no role's agent definition grants it a tool or context read outside its FR-25..29 contract
+
+### Story 7.4: Safety Discipline — Refusal Ceiling and Provider Backoff
+
+As a researcher,
+I want the system to stop and tell me when it's stuck, rather than silently burning tokens retrying the same refused call, and I want a rate-limited provider to back off instead of ending my run,
+So that a bug in the harness costs me a conversation, not a bill.
+
+**Acceptance Criteria:**
+
+**Given** the chokepoint's refusal counter
+**When** the same `(entrypoint, target)` is refused identically past the configured ceiling
+**Then** the next identical attempt receives `requires_researcher` instead of an ordinary refusal (FR-48, AD-26)
+
+**Given** the refusal counter
+**When** I inspect its implementation
+**Then** it is derived from the tail of `events.jsonl` — no new store — and resets on any intervening non-refusal event for that same `(entrypoint, target)` tuple (AD-26)
+
+**Given** a `requires_researcher` response
+**When** it reaches the Interviewer
+**Then** it is surfaced directly in-conversation — it never enters the Question Ledger or `kagami ask`'s queue, and carries no question-class key (AD-26, AD-8, AD-14)
+
+**Given** a literature-provider adapter hits its documented rate limit (OpenAlex, Semantic Scholar, arXiv, or GitHub)
+**When** the next request would exceed it
+**Then** the adapter backs off and retries rather than surfacing a raw provider error to the researcher (NFR7, AD-7)
+
+**Given** a sustained rate-limit condition
+**When** backoff is exhausted
+**Then** the failure is surfaced as a specific, named error — never a silent hang or an unbounded retry loop (NFR7)
+
+### Story 7.5: The Golden Toy Run — Dogfooding as an Acceptance Test
+
+As a researcher,
+I want one fixed, repeatable toy investigation run end-to-end through the actual harness before I trust this system on real research,
+So that I validate the mechanics — not the output quality — on a topic I already understand well enough to judge instantly.
+
+**Acceptance Criteria:**
+
+**Given** a fixed toy topic, small corpus scope, and pinned cheap-tier config (the golden toy-run protocol, AD-27)
+**When** the run is driven start to finish through Frame→Map→Deepen→Synthesize→Locate
+**Then** it reaches an accepted Gap Register through the real harness built in Stories 7.1–7.4, not a scripted driver
+
+**Given** the completed toy run's event log
+**When** it is inspected against the evaluation rubric fixed at this story's design time
+**Then** it records: the refusal→correction pattern, never refusal→identical-retry (Story 7.4, AD-26); Question Ledger `consumed_by` coverage; the override profile from Story 5.2's gate-loosening mechanism; `premature_ideas/` volume (AD-9); and a check for known clusters the Scout/Cartographer pairing missed — the embedding-index revisit trigger recorded in the Architecture Spine's Deferred section
+
+**Given** the same toy run
+**When** `kagami metrics` is run at each gate it passed
+**Then** the token ledger and decision block (Story 6.1, Story 7.2) accurately account for every reported `llm_call`, with no reported call missing and no duplicate-inflated total
+
+**Given** this story's Definition of Done
+**When** it is reviewed
+**Then** it includes the recorded session transcript, the completed rubric, and an explicit pass/fail verdict on whether the harness is ready for a real (non-toy) investigation — this verdict, not story completion, is Epic 7's actual exit criterion

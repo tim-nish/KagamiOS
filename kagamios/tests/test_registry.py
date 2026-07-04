@@ -140,6 +140,46 @@ def test_backward_transitions_are_registered(registry):
     assert ("decided", "propose") in transitions
 
 
+def test_consumption_map_defines_all_states_including_decide(registry):
+    for state in (*registry.states(), registry.decide_gate()):
+        readable = registry.consumption_map(state)
+        assert readable, f"state '{state}' has no readable types defined"
+
+
+def test_can_read_reflects_the_consumption_map(registry):
+    assert registry.can_read("frame", "intuition-note") is True
+    assert registry.can_read("frame", "gap-register") is False
+    assert registry.can_read("locate", "landscape-synthesis") is True
+
+
+def test_consumption_map_rejects_unknown_consumer(tmp_path):
+    schemas_root = _minimal_schemas_root(tmp_path)
+    (schemas_root / "consumption_map.yaml").write_text(
+        "schema_version: 1\nstates:\n  not-a-real-state: [intuition-note]\n"
+    )
+    with pytest.raises(RegistryError, match="unknown consumer"):
+        load_registry(schemas_root)
+
+
+def test_consumption_map_rejects_unknown_artifact_type(tmp_path):
+    schemas_root = _minimal_schemas_root(tmp_path)
+    (schemas_root / "consumption_map.yaml").write_text(
+        "schema_version: 1\nstates:\n  frame: [not-a-real-type]\n"
+    )
+    with pytest.raises(RegistryError, match="unknown artifact type"):
+        load_registry(schemas_root)
+
+
+def _minimal_schemas_root(tmp_path):
+    import shutil
+
+    from kagami.registry import SCHEMAS_ROOT
+
+    schemas_root = tmp_path / "schemas"
+    shutil.copytree(SCHEMAS_ROOT, schemas_root)
+    return schemas_root
+
+
 def test_load_registry_raises_when_an_artifact_type_is_missing(tmp_path):
     schemas_root = tmp_path / "schemas"
     (schemas_root / "artifacts").mkdir(parents=True)
