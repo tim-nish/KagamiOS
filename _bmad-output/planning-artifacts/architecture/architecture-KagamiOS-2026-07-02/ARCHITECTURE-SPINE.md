@@ -7,12 +7,12 @@ paradigm: 'ports-and-adapters (hexagonal) deterministic core, hosted as a Claude
 scope: 'KagamiOS v1 MVP — states Frame→Map→Deepen→Synthesize→Locate; terminal deliverable is an accepted Gap Register; Propose/Decide deferred to v2 but must not be precluded'
 status: final
 created: '2026-07-02'
-updated: '2026-07-03'
-binds: ['FR-1..FR-7', 'FR-9..FR-37', 'FR-39', 'FR-45', 'FR-46', 'FR-48', 'FR-49']
+updated: '2026-07-04'
+binds: ['FR-1..FR-7', 'FR-9..FR-37', 'FR-39', 'FR-45', 'FR-46', 'FR-48', 'FR-49', 'FR-50', 'FR-51', 'FR-52', 'FR-53']
 binds_non_preclusion: ['FR-8', 'FR-42', 'FR-43', 'FR-44', 'FR-47']
 deferred_frs: ['FR-38', 'FR-40', 'FR-41']
-sources: ['_bmad-output/planning-artifacts/prds/prd-KagamiOS-2026-07-02/prd.md', 'archive/docs-spec/ (archived — historical/audit material only, superseded by this Architecture Spine and its companion SPEC/PRD)']
-companions: []
+sources: ['_bmad-output/planning-artifacts/prds/prd-KagamiOS-2026-07-02/prd.md', '_bmad-output/planning-artifacts/change-signal-scout-probes-2026-07-04.md', 'archive/docs-spec/ (archived — historical/audit material only, superseded by this Architecture Spine and its companion SPEC/PRD)']
+companions: ['docs/future-scout-redesign.md (design notebook only — NOT an implementation source; see its own status header)']
 ---
 
 # Architecture Spine — KagamiOS v1
@@ -70,9 +70,9 @@ Layer map:
 
 ### AD-7 — Literature providers behind one port; default is configuration `[ADOPTED]`
 
-- **Binds:** `kagami/corpus/`, Scout
-- **Prevents:** single-provider coupling; provider choice baked into call sites (OpenAlex's Feb-2026 pricing change is the live proof)
-- **Rule:** One `LiteratureProvider` port (search, paper metadata, citation graph). OpenAlex and Semantic Scholar are peer adapters; arXiv and GitHub are complementary-source adapters. No call site names a provider; the default comes from `config.yaml`. Provider credentials come from **environment variables only, never `config.yaml`** (which lives in the user's project and may be committed).
+- **Binds:** `kagami/corpus/`, Scout; FR-50, FR-51
+- **Prevents:** single-provider coupling; provider choice baked into call sites (OpenAlex's Feb-2026 pricing change is the live proof); a citation-graph contract that only ever grows one direction
+- **Rule:** One `LiteratureProvider` port (search, paper metadata, citation graph). OpenAlex and Semantic Scholar are peer adapters; arXiv and GitHub are complementary-source adapters. No call site names a provider; the default comes from `config.yaml`. Provider credentials come from **environment variables only, never `config.yaml`** (which lives in the user's project and may be committed). **Scout-probes amendment (2026-07-04, FR-51):** `citation_graph(canonical_key)` returns `{"canonical_key", "cited_by": [...], "references": [...]}` — both directions, always present as keys even when empty. Each adapter fills what its underlying API actually offers; arXiv and GitHub legitimately return empty lists for one or both directions today — an exposed provider bias, not a bug to mask. This is an amendment to the port's return shape, not a new port method; `kagami/kernel/scout.py`'s new `corpus_expand` operation (FR-50) is its first caller — that operation itself needs no new AD, since it is `search_corpus`'s role-gate (AD-2) and event-logging (AD-11) pattern applied to a second Scout action, not a new mechanism.
 
 ### AD-8 — Single ASK scheduler, batch ≤ 5, enforced at the ledger
 
@@ -194,6 +194,12 @@ Layer map:
 - **Prevents:** unfalsifiable Definition-of-Done on harness-side stories; AD-25's CLI-boundary proof being mistaken for covering the driver too
 - **Rule:** AD-25 verifies `kagami/` and `hooks/` only — the entrypoint boundary and the hook payloads, harness-free. `skills/` and `agents/` are prompts, not code, and cannot be exercised by that suite. A driver story's Definition of Done instead requires: (a) a **recorded-transcript check** — a real Claude Code session transcript demonstrating the story's acceptance criteria end-to-end, attached to the PR, extending the `implement-issue` review convention already in use; (b) a **checklist review** against the role/skill's charter — does the artifact violate any AD, does any FR consequence fail on inspection; (c) for the walking-skeleton and toy-run stories specifically, a **golden toy-run protocol** — a fixed, repeatable toy investigation (topic, corpus scope, config pinned) whose event log is inspected against the evaluation rubric fixed at Epic 7 story-design time. None of these substitute for AD-25's suite on the core; they are the driver's parallel, weaker-but-honest verification path — itself an AD-11 honest-gap entry, not a claim of parity with the core's guarantees.
 
+### AD-28 — Fact/judgment separation: paper cards are frame-independent, appraisals are frame-stamped `[ADOPTED]`
+
+- **Binds:** FR-52; AD-18 (paper card identity); non-preclusion for any future belief-store/Appraiser component
+- **Prevents:** a frame-dependent opinion (is this paper relevant *to this run's current framing*) laundered into a frame-independent, cross-run-cached fact (AD-18's content-derived paper card); a frame revision requiring re-exploration instead of merely re-scoring
+- **Rule:** A paper card (AD-18) may never carry a relevance, priority, or judgment field — the schema registry (FR-30) enforces this as a hard invariant at the write chokepoint (AD-2), the same class of mechanical refusal as FR-31's write-guard, not a drafting convention. A separate, run-scoped **appraisal record** (`{paper_id, judgment, frame_version, reason}`) is the only sanctioned place a frame-dependent valuation lives; it is written only through a validated `kagami` entrypoint and stamped with the Inquiry Frame version that produced it (AD-6's version semantics, reused). When the frame is revised, appraisals are re-issued against the new frame version — the paper cards they reference are untouched, exactly as AD-13/AD-18 already promise for any cross-run-cached fact. This is the one genuinely new architectural rule in the 2026-07-04 Scout-probes change (`change-signal-scout-probes-2026-07-04.md`): it exists to keep the fact/valuation boundary honest now, so that a future belief-store split (`docs/future-scout-redesign.md` — design notes only, not a build target) would be additive rather than a retrofit. Nothing about a frontier, allocator, or governor is implied or required by this rule; it governs data shape only.
+
 ### Dependency direction
 
 ```mermaid
@@ -271,6 +277,7 @@ _kagami-output/
     manifest.yaml                  # run id, rooting note ref, budgets, monitoring config + state cache (AD-20)
     artifacts/<type>/<art-id>/     # vN.md (immutable) + current.md (edit surface) + meta.yaml (AD-6)
     ledger/                        # q-NNN.yaml record store (AD-17); ledger.md = derived render
+    appraisals/                    # frame-stamped judgment records, run-scoped (AD-28, FR-52)
     events.jsonl                   # event log (AD-11)
     queue/                         # worker-emitted unknowns awaiting the ASK scheduler (AD-8)
     premature_ideas/               # generation-window quarantine (AD-9)
@@ -295,9 +302,11 @@ _kagami-output/
 | Corpus / Scout search (FR-25) | `corpus/` + provider adapters | AD-7, AD-18 |
 | v2 non-preclusion (FR-8, FR-42/43/44, FR-47) | `schemas/` window table + state enum + exemption flags | AD-14, AD-24 |
 | §4.8 Driver & harness shell (FR-48 retry ceiling, FR-49 reporting) | `skills/kagami-discovery/` + `agents/` + new reporting entrypoint | AD-26, AD-27, AD-4 (deferral), AD-11 (honest-gap) |
+| §4.9 Scout exploration probes (FR-50 corpus expand, FR-51 port contract, FR-52 appraisals, FR-53 rediscovery metric) | `kagami/kernel/scout.py` (`corpus_expand`) + `kagami/corpus/` (port + adapters) + new appraisal store + `kagami/kernel/metrics.py` | AD-2, AD-7 (amended), AD-11 (event-derivable graph), AD-28 (new), AD-20 (derived-metric pattern) |
 
 ## Deferred
 
+- **Scout graph-exploration architecture (belief store, frontier, allocator, governor)** — recorded as design notes only in `docs/future-scout-redesign.md`, explicitly not an implementation source. The 2026-07-04 Scout-probes change (FR-50..FR-53, AD-28) ships four minimal, independently shippable instrumentation probes instead, each designed to produce the dogfooding evidence that notebook's adjudication table needs. Revisit trigger: per-component, evaluated against 2–3 real investigation runs' probe data — not before, and not by this notebook's existence alone.
 - **Local embedding index over paper cards** — **recorded deviation from `docs-spec/07_runtime.md` §5–§6** (which specifies corpus-tier hybrid retrieval including embeddings, and embeddings + graph communities as Map's partition mechanism), accepted by explicit researcher decision. Interim mechanism, fixed here so units don't diverge: candidate partitions derive from **citation-graph communities plus provider-side relevance/semantic search**, and FR-26's two structurally different cuts must be derivable from that pair. Revisit trigger: Scout/Cartographer demonstrably miss relevant clusters during dogfooding. (Artifact tier stays graph-only permanently — Standing Refusal, not a deferral.)
 - **Propose/Decide flows** (FR-42/43/44, the Propose-side unprimed question, post-decision monitoring FR-8) — v2; types, windows, and exemption flags already ship per AD-14; FR-8 reuses AD-24's sweep.
 - **Cross-run analytics store + Design Audit Report loop** (FR-38, FR-40, FR-41) — needs accumulated runs; PRD §7.2. The run-1 schema commitments that make this loop possible later are *not* deferred (AD-14). FR-39's content-stripping rules (event shapes/counts/classes travel; question text, artifact content, paper identities never) ride this deferral explicitly and bind any future sharing surface.

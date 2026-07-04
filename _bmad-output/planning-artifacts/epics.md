@@ -5,6 +5,7 @@ inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-KagamiOS-2026-07-02/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-KagamiOS-2026-07-02/ARCHITECTURE-SPINE.md
   - _bmad-output/planning-artifacts/change-signal-epic7-2026-07-03.md
+  - _bmad-output/planning-artifacts/change-signal-scout-probes-2026-07-04.md
 ---
 
 # KagamiOS - Epic Breakdown
@@ -141,6 +142,18 @@ FR-48: The chokepoint tracks consecutive identical refusals per `(entrypoint, ta
 
 FR-49: The harness reports every model call it makes — role, operation class, model tier, token counts, cache-hit — through a validated `kagami` entrypoint immediately after the call; the core never invokes models itself and never infers these fields. [v1]
 
+**4.9 Scout Exploration Probes** *(added 2026-07-04 — the first live dogfooding run exposed that Scout has exactly one sensor, one-shot bulk keyword search, with no stopping signal and no way to grow from a good find; see change-signal-scout-probes-2026-07-04.md. Four minimal, independently shippable probes ship now as instrumentation; the larger graph-exploration redesign they inform is deliberately deferred and recorded only as design notes in `docs/future-scout-redesign.md`, never a requirement here.)*
+
+FR-50: In addition to `search_corpus`, Scout has a second sanctioned corpus-touching action — given a paper already in the corpus, retrieve and mint cards for its citation neighbors, and report the traversal as an explicit edge list on one `retrieval` event (`kind: corpus_expand`); the observed citation graph is fully derivable by replaying the event log, no new graph store. [v1]
+
+FR-51: The `LiteratureProvider` port's citation-graph query returns both `cited_by` and `references` lists (always present as keys, empty where a provider has no data for that direction); no call site names a provider. [v1]
+
+FR-52: Paper cards never carry a relevance, priority, or judgment field — a hard schema invariant enforced at the write chokepoint; a separate run-scoped appraisal record (`paper_id`, `judgment`, `frame_version`, `reason`) is the sole sanctioned place a frame-dependent valuation lives, written through a validated entrypoint and stamped with the Inquiry Frame version that produced it. [v1]
+
+FR-53: The system computes a rediscovery rate — the fraction of a run's recent retrievals that returned an already-seen paper — as a deterministic, warn-only signal surfaced wherever run metrics already surface; it never blocks, halts, or alters Scout's next action. [v1]
+
+**Charter discipline (no new FR — verified per the existing prompt-artifact testing convention, AD-27, not schema-testable):** Scout's charter (`agents/scout.md`) gains an explicit iteration discipline — small search limits (5–8, not 20), skim-then-decide (requery / expand / report) per iteration, a cap on new papers surfaced per iteration, and 2–4 named anchor papers when reporting to Map.
+
 ### NonFunctional Requirements
 
 NFR1: **Platform.** KagamiOS installs and runs as a Claude Code plugin, co-installable with BMAD, following its layout conventions (skills + deterministic scripts + hooks). Mechanical guarantees are deterministic code inside the plugin — a script chokepoint is the only sanctioned mutation path, hooks block direct AI writes — never prompt convention. Accepted v1 trade-offs: main-thread token/prompt accounting is incomplete; scheduler obedience is detect-and-audit rather than prevent.
@@ -268,6 +281,10 @@ FR-46: Epic 4 - generation-window enforcement, proven end-to-end at the Gap Regi
 FR-47: Epic 1 - permanent audit-exemption flag on constitutive-triad + E6 fields
 FR-48: Epic 7 - refusal-retry ceiling with mandatory escalation
 FR-49: Epic 7 - llm_call reporting through a validated entrypoint
+FR-50: Epic 8 - `corpus expand` graph-sensor entrypoint, edge-carrying retrieval event
+FR-51: Epic 8 - citation_graph port contract extension (`cited_by` + `references`)
+FR-52: Epic 8 - appraisal records + card frame-independence invariant
+FR-53: Epic 8 - rediscovery-rate derived metric
 
 NFR1: Epic 1 - platform (plugin runtime, chokepoint architecture)
 NFR2: Epic 1 - auditability by construction (mechanism); proven end-to-end in Epic 6
@@ -313,6 +330,11 @@ Epics 1–6 built a deterministic core with 337 passing tests but no epic ever c
 **FRs covered:** FR-48, FR-49 (operationalizes FR-17..29, FR-33/34, FR-37 through an actual harness for the first time — those FRs were already structurally covered by Epics 1/2/3/6)
 **NFRs:** NFR7
 **Explicitly out of Epic 7 scope (deferred, per Architecture Spine AD-4's v1-driver amendment):** `kagami session open/close` and single-use engagement tokens — role attribution is self-declared and trusted for v1-driver instead. Revisit trigger: a role writing off-charter content that a token check would have caught, surfaced during Story 7.5's toy run.
+
+### Epic 8: Scout Exploration Probes
+The first live dogfooding run (Story 7.5) exposed that Scout has exactly one sensor — one-shot bulk keyword search — which anchors the corpus on the query's own vocabulary, gives no stopping signal, and offers no way to grow outward from a paper once it's found good. A full graph-exploration redesign was analyzed and deliberately not built (recorded as design notes only in `docs/future-scout-redesign.md`); this epic instead lands four minimal, independently shippable probes that extend Scout's sensing and reporting surface — a citation-graph expansion sensor whose retrieval events carry an explicit, log-derivable edge list; a port-contract extension so citation queries expose both directions; frame-stamped appraisal records kept structurally separate from the frame-independent paper card; and a rediscovery-rate metric — each one designed to produce the dogfooding evidence that will decide whether the larger redesign is ever built. No belief store, frontier data structure, allocation policy, or checkpoint governor ships in this epic; any story that grows toward those is out of scope.
+**FRs covered:** FR-50, FR-51, FR-52, FR-53
+**Explicitly out of Epic 8 scope (deferred pending dogfooding evidence, per `change-signal-scout-probes-2026-07-04.md`):** the full graph-exploration architecture (Landscape Model belief store, Frontier, UCB Allocator, EVOI Governor, semantic-similarity edges) — see `docs/future-scout-redesign.md`'s adjudication table for what future evidence would fund which component.
 
 ## Epic 1: Plugin Foundation, Chokepoint Substrate & First Framed Investigation
 
@@ -1129,3 +1151,103 @@ So that I validate the mechanics — not the output quality — on a topic I alr
 **Given** this story's Definition of Done
 **When** it is reviewed
 **Then** it includes the recorded session transcript, the completed rubric, and an explicit pass/fail verdict on whether the harness is ready for a real (non-toy) investigation — this verdict, not story completion, is Epic 7's actual exit criterion
+
+## Epic 8: Scout Exploration Probes
+
+The golden toy run (Story 7.5) exposed that Scout has exactly one sensor — one-shot bulk keyword search — with no stopping signal and no way to grow outward from a good find. This epic lands four minimal, independently shippable probes that instrument the exploration weaknesses a full redesign would otherwise have to guess at; the redesign itself (`docs/future-scout-redesign.md`) is explicitly deferred pending the evidence these probes produce.
+
+### Story 8.1: Corpus Expand — Citation-Graph Sensor with a Log-Derivable Edge List
+
+As a researcher,
+I want Scout to be able to grow outward from a paper I already know is good by following its citation graph, not only requery with different keywords,
+So that a strong anchor paper can pull in its neighborhood instead of the corpus staying anchored on my original query's vocabulary.
+
+**Acceptance Criteria:**
+
+**Given** a paper already present in the corpus
+**When** a non-Scout role calls `kagami corpus expand`
+**Then** it is refused before any provider is queried — the identical role gate as `search_corpus` (FR-25, FR-50)
+
+**Given** a Scout-role call to `kagami corpus expand --canonical-key <key>`
+**When** it succeeds
+**Then** exactly one `retrieval` event of `kind: corpus_expand` is appended, carrying the origin paper id and an explicit edge list of `{"from": <paper_id>, "to": <paper_id>, "direction": "cited_by" | "references"}` entries (FR-50)
+
+**Given** a run's full sequence of `corpus_search` and `corpus_expand` events
+**When** the citation graph is reconstructed by replaying them
+**Then** the reconstructed graph matches the actual traversal exactly — no separate graph store exists anywhere in the run (FR-50, AD-11's derived-state pattern)
+
+**Given** a citation neighbor not yet in the corpus cache
+**When** `corpus_expand` mints its paper card
+**Then** it goes through the same `get_or_create_paper_card` path a search result uses — an expanded card and a searched card are indistinguishable in the cache (FR-50, AD-18)
+
+**Given** the `LiteratureProvider.citation_graph` port
+**When** any adapter is called
+**Then** the result always carries both a `cited_by` list and a `references` list as keys, even when one or both are empty (FR-51, AD-7's amendment)
+
+**Given** the arXiv and GitHub adapters, which have no real citation-graph source today
+**When** `citation_graph` is called against them
+**Then** they legitimately return empty lists for one or both directions rather than fabricating or approximating data (FR-51)
+
+### Story 8.2: Appraisal Records & the Card Frame-Independence Invariant
+
+As a researcher,
+I want my judgment about whether a paper matters *to my current framing* kept separate from the paper's own cached facts,
+So that revising my Inquiry Frame never silently invalidates or corrupts a fact I'll want to reuse in a future run.
+
+**Acceptance Criteria:**
+
+**Given** a paper card schema
+**When** an AI-originated write attempts to set a relevance, priority, or judgment field on it
+**Then** the write is refused at the schema/write-guard layer — a hard invariant, not a drafting convention (FR-52, AD-28)
+
+**Given** a validated appraisal entrypoint
+**When** I record a judgment about a paper
+**Then** it writes a structured record carrying `paper_id`, `judgment`, `frame_version`, and `reason` (FR-52)
+
+**Given** an existing set of appraisals stamped with an earlier Inquiry Frame version
+**When** the Inquiry Frame is revised to a new version
+**Then** those appraisals are not silently treated as still valid for the new frame — re-appraisal is a distinct, loggable act, and the paper cards they reference are untouched by the frame revision (FR-52, AD-28)
+
+**Given** the appraisal store
+**When** I inspect where it lives
+**Then** it is a run-scoped store (`runs/<run-id>/appraisals/`), not part of the cross-run corpus cache (AD-28, AD-13)
+
+### Story 8.3: Scout Charter — Iteration & Anchor Discipline
+
+As a researcher,
+I want Scout to work in small, deliberate iterations instead of one big bulk retrieval,
+So that its search actually adapts to what it finds instead of committing all its effort to my original query's wording.
+
+**Acceptance Criteria:**
+
+**Given** `agents/scout.md`
+**When** I inspect its charter
+**Then** it specifies a small default search limit (5–8 papers, not 20) and an explicit iteration loop: query → skim results → decide to requery with revised vocabulary, expand an anchor (Story 8.1), or report back to Map (PRD §4.9 charter discipline)
+
+**Given** a completed Map session driven by the real Scout subagent
+**When** I review its recorded transcript
+**Then** it shows the iteration loop actually followed, a cap on new papers surfaced per iteration observed in practice, and 2–4 named anchor papers in Scout's report back to Map
+
+**Given** this story cannot be pytest-verified (it changes a prompt artifact, not core code)
+**When** its Definition of Done is reviewed
+**Then** it follows AD-27's convention exactly: a recorded-transcript check plus a checklist review against the amended charter — no new schema-testable consequence is claimed for this story
+
+### Story 8.4: Rediscovery-Rate Metric — a Warn-Only Saturation Signal
+
+As a researcher,
+I want to see, without it changing anything on its own, how often Scout is re-finding papers it's already found,
+So that I have evidence — not a guess — for whether a region of the literature is exhausted.
+
+**Acceptance Criteria:**
+
+**Given** a run's `retrieval` events, each already carrying the existing `reused` flag (FR-13)
+**When** `kagami metrics` computes the rediscovery rate
+**Then** it deterministically computes the fraction of already-seen papers over the most recent N retrievals, with no LLM call involved (FR-53)
+
+**Given** the same event log
+**When** the rediscovery-rate computation is re-run
+**Then** it always produces the same number (FR-53, matching FR-37's determinism pattern)
+
+**Given** the rediscovery rate at any point in a run
+**When** it is surfaced
+**Then** it appears wherever run metrics already surface (the existing FR-37 gate-time surface) and never blocks, halts, or alters Scout's next action — reporting only, the same posture as FR-37's token-budget warning (FR-53, AD-26(c))

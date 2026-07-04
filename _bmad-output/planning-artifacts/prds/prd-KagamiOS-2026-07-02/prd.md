@@ -2,7 +2,7 @@
 title: KagamiOS
 status: final
 created: 2026-07-02
-updated: 2026-07-03
+updated: 2026-07-04
 ---
 
 # PRD: KagamiOS
@@ -10,7 +10,7 @@ updated: 2026-07-03
 
 ## 0. Document Purpose
 
-This PRD translates the normative, already-finalized design in `docs-spec/` into product-requirement form for downstream BMAD planning (architecture, epics). It is a translation, not a redesign: every Feature, FR, and Non-Goal below traces to a specific `docs-spec/` document, and where this PRD had to make a PM-framing call the spec itself doesn't dictate (wording, grouping, journey invention), the call is tagged `[ASSUMPTION]` inline and indexed in §10. One product-level requirement originates here rather than in `docs-spec/` (which is platform-silent): KagamiOS ships as a **Claude Code plugin in the BMAD ecosystem** — see §5's Platform constraint (researcher decision, 2026-07-02). A second product-level addition originates from implementation-readiness review rather than `docs-spec/`: §4.8's driver-side FRs (FR-48, FR-49), added 2026-07-03 after Epics 1–6 shipped the deterministic core with no epic ever covering the harness that drives it — see §4.8's description for the gap this closes. Deep mechanism detail (schema field lists, dispatch-table tiers, cache guidance, rejected-alternative rationale) that would pad this document without changing what's built lives in `addendum.md`; `docs-spec/` itself remains the authoritative machine-readable source and is not duplicated here. FRs are numbered globally (FR-1 through FR-N) and grouped by mechanism so downstream architecture work can address one subsystem at a time.
+This PRD translates the normative, already-finalized design in `docs-spec/` into product-requirement form for downstream BMAD planning (architecture, epics). It is a translation, not a redesign: every Feature, FR, and Non-Goal below traces to a specific `docs-spec/` document, and where this PRD had to make a PM-framing call the spec itself doesn't dictate (wording, grouping, journey invention), the call is tagged `[ASSUMPTION]` inline and indexed in §10. One product-level requirement originates here rather than in `docs-spec/` (which is platform-silent): KagamiOS ships as a **Claude Code plugin in the BMAD ecosystem** — see §5's Platform constraint (researcher decision, 2026-07-02). A second product-level addition originates from implementation-readiness review rather than `docs-spec/`: §4.8's driver-side FRs (FR-48, FR-49), added 2026-07-03 after Epics 1–6 shipped the deterministic core with no epic ever covering the harness that drives it — see §4.8's description for the gap this closes. A third addition originates from the first live dogfooding run rather than `docs-spec/` or implementation-readiness review: §4.9's Scout exploration probes (FR-50 through FR-53), added 2026-07-04 after that run exposed weaknesses in Scout's one-shot bulk-keyword exploration strategy — see `_bmad-output/planning-artifacts/change-signal-scout-probes-2026-07-04.md` for the full trigger and `docs/future-scout-redesign.md` for the (explicitly not-for-implementation) larger redesign these probes instrument evidence for. Deep mechanism detail (schema field lists, dispatch-table tiers, cache guidance, rejected-alternative rationale) that would pad this document without changing what's built lives in `addendum.md`; `docs-spec/` itself remains the authoritative machine-readable source and is not duplicated here. FRs are numbered globally (FR-1 through FR-N) and grouped by mechanism so downstream architecture work can address one subsystem at a time.
 
 ## 1. Vision
 
@@ -472,6 +472,42 @@ Whatever drives the system reports every model call it makes — role, operation
 - Every `llm_call` event in the run event log (FR-36) was written by this entrypoint, not fabricated or inferred after the fact.
 - A model call made but never reported is invisible to the token ledger (FR-37) and the charter audit (FR-29) — an accepted, logged gap (self-reporting is detect-and-audit, not prevent), never silently corrected or hidden.
 
+### 4.9 Scout Exploration Probes
+
+**Description:** `[ASSUMPTION: this section originates from the first live dogfooding run rather than docs-spec/, added 2026-07-04 — see §0.]` The dogfooding run exposed that Scout has exactly one sensor — one-shot bulk keyword search — which anchors the corpus on the query's own vocabulary, gives no stopping signal, and offers no way to grow outward from a paper once it's found good. A conceptual analysis of the full fix (a graph-exploration architecture for Scout) was produced and deliberately **not** built now; instead this section specifies four small, independently shippable probes that extend Scout's sensing and reporting surface without adding any belief store, frontier data structure, allocation policy, or checkpoint governor. Each probe doubles as instrumentation: the evidence it produces is what will decide whether the larger redesign (recorded, not specified, in `docs/future-scout-redesign.md`) is ever built. Realizes the same UJ-1 Map beat as FR-25/FR-26, at higher fidelity.
+
+#### FR-50: Scout can expand outward from a known paper via its citation graph, not only requery
+In addition to `search_corpus` (FR-25), Scout has a second sanctioned corpus-touching action: given a paper already in the corpus, retrieve its citation neighbors, mint paper cards for each, and report the traversal as an explicit edge list.
+
+**Consequences (testable):**
+- A Scout-only entrypoint (`kagami corpus expand`) is gated by the same role check as `search_corpus` — a non-Scout caller is refused before any provider is queried, identically to FR-25.
+- Every successful expansion appends one `retrieval` event of `kind: corpus_expand` carrying the origin paper id and an explicit edge list (`{"from": <paper_id>, "to": <paper_id>, "direction": "cited_by" | "references"}`) — the observed citation graph is fully derivable by replaying `retrieval` events, with no separate graph store or new artifact type (same derived-state pattern already governing FR-3's per-cluster state).
+- Neighbor papers reachable from an expansion are minted via the same paper-card path as a search result (FR-14, AD-18) — an expanded paper and a searched paper are indistinguishable in the corpus cache.
+
+#### FR-51: Citation graph data includes both forward and backward edges, with providers exposing what they actually have
+The literature-provider port's citation-graph query returns both directions — papers that cite the given paper, and papers the given paper cites — rather than only the forward direction.
+
+**Consequences (testable):**
+- A citation-graph query result always carries both a `cited_by` list and a `references` list, even when one or both are empty.
+- A provider with no real citation data for one or both directions (arXiv, GitHub, as of this writing) legitimately returns an empty list rather than fabricating or approximating one — an exposed provider bias is correct behavior, not a gap to paper over.
+
+#### FR-52: Frame-dependent relevance judgments are recorded separately from frame-independent paper facts
+A paper card (FR-14, AD-18) never carries a relevance, priority, or judgment field — it stays a content-derived fact cached forever across runs. A separate, run-scoped appraisal record captures what a paper means *to this run's current frame*: a judgment, tied explicitly to the frame version that produced it.
+
+**Consequences (testable):**
+- An attempted write of a relevance-shaped field to a paper card is refused at the schema/write-guard layer (FR-30, FR-31) — this is a hard schema invariant, not a convention.
+- Every appraisal record carries `paper_id`, `judgment`, `frame_version`, and `reason`; it is written only through a validated `kagami` entrypoint (AD-2).
+- When the Inquiry Frame is revised to a new version, existing appraisals are not silently treated as still valid for the new frame — re-appraisal is a distinct, loggable act, and the paper card those appraisals reference is untouched by the frame revision.
+
+#### FR-53: Rediscovery rate is surfaced as a warn-only saturation signal
+The system computes, from the event log, what fraction of a run's most recent retrievals (search or expand) returned a paper already seen earlier in the run — a candidate signal for whether a region of the corpus is exhausting.
+
+**Consequences (testable):**
+- The rediscovery rate is a deterministic computation over existing `retrieval` events' already-present `reused` flag (FR-13's cache-hit signal, currently generated and dropped) — no new event family, no LLM judgment.
+- The rediscovery rate is reporting only: it is surfaced wherever run metrics already surface (FR-37's existing gate-time metrics surface) and never blocks, halts, or alters Scout's next action — the same warn-only posture FR-37's token-budget consequence already established.
+
+**Charter discipline (no new FR — verified per the existing prompt-artifact testing convention, not a schema-testable consequence):** Scout's charter is amended to work in explicit iterations — search with a small limit (5–8 papers, not 20), skim results, and decide to requery, expand an anchor (FR-50), or report back to Map — capping new papers surfaced per iteration and naming 2–4 anchor papers when reporting out. This is prompt/behavioral discipline, not a mechanically enforced guarantee, and is verified the same way Epic 7's driver-side stories were: recorded-transcript check plus checklist review, never a pytest assertion.
+
 ## 5. Cross-Cutting NFRs
 
 - **Platform: Claude Code plugin, BMAD-ecosystem native** (researcher decision, 2026-07-02). KagamiOS installs and runs as a Claude Code plugin, co-installable with BMAD and following its layout conventions (skills + deterministic scripts + hooks). The mechanical guarantees in §4 (write-guards, generation windows, ASK batching, event logging) are implemented as deterministic code *inside* the plugin — a script chokepoint that is the only sanctioned mutation path, with hooks blocking direct AI writes to the artifact store — never as prompt convention. Two accepted v1 trade-offs of this platform: main-thread token/prompt accounting is incomplete, and scheduler obedience is detect-and-audit rather than prevent; both are acceptable only because illegal state mutation remains mechanically impossible and every deviation is auditable. The deterministic core must remain standalone-capable as a library, so a future non-plugin runtime is an adapter, not a rewrite.
@@ -564,3 +600,4 @@ KagamiOS v1 explicitly will not:
 - §4 (intro) — FR grouping into seven subsections (state machine, artifacts, elicitation, roles, runtime, observability, Propose/Decide-and-guardrails) is a PM-authoring choice for downstream traceability; the spec does not itself mandate this exact grouping, though it maps directly onto `docs-spec/`'s own document boundaries (03–08) plus a consolidated cluster for mechanisms that were originally scattered across `02_principles.md` and `03_state_machine.md`.
 - §7.1 — ~~MVP scope assumption~~ **superseded by researcher decision (2026-07-02):** MVP runs through Gap Register only; Propose/Decide are v2. The hand-run validation question (OQ-A) was resolved by decision, not assumption — skip it and build.
 - Stakes tier (Internal tool, ~5-8pg target) and working mode (Fast path) for this PRD run were defaulted without explicit user confirmation after a calibration question went unanswered; see `.memlog.md`. Implicitly ratified by the researcher's approval of this PRD as the implementation baseline (2026-07-02).
+- §4.9 — Scout exploration probes originate from the first live dogfooding run (code inspection + product decision recorded in `change-signal-scout-probes-2026-07-04.md`), not from `docs-spec/`; the larger graph-exploration architecture they instrument for is deliberately out of scope and recorded only as design notes in `docs/future-scout-redesign.md`, never as a requirement here.
