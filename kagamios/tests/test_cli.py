@@ -710,6 +710,45 @@ def test_corpus_search_cli_resolves_provider_from_config_not_a_hardcoded_call_si
     assert captured_config == {"literature_provider": "stub"}
 
 
+def test_corpus_search_cli_defaults_limit_to_eight_and_forwards_an_explicit_override(
+    tmp_path, monkeypatch, capsys
+):
+    import kagami.cli as cli_module
+    from kagami.corpus.provider import LiteratureProvider
+    from kagami.kernel.scout import DEFAULT_SEARCH_LIMIT
+
+    captured_limits = []
+
+    class _StubProvider(LiteratureProvider):
+        name = "stub"
+
+        def search(self, query, limit=20):
+            captured_limits.append(limit)
+            return []
+
+        def paper_metadata(self, canonical_key):
+            raise NotImplementedError
+
+        def citation_graph(self, canonical_key):
+            raise NotImplementedError
+
+    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None: _StubProvider())
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-limit-test"])
+    capsys.readouterr()
+
+    main(["corpus", "search", "--run-id", "run-corpus-limit-test", "--role", "scout", "--query", "x"])
+    capsys.readouterr()
+    assert captured_limits == [DEFAULT_SEARCH_LIMIT]
+
+    main(
+        ["corpus", "search", "--run-id", "run-corpus-limit-test", "--role", "scout", "--query", "x",
+         "--limit", "3"]
+    )
+    capsys.readouterr()
+    assert captured_limits == [DEFAULT_SEARCH_LIMIT, 3]
+
+
 def test_corpus_search_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-corpus-refuse"])

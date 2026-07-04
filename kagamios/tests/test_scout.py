@@ -4,7 +4,7 @@ import pytest
 
 from kagami.corpus.cache import mint_paper_id
 from kagami.corpus.provider import LiteratureProvider
-from kagami.kernel.scout import CorpusAccessError, corpus_expand, search_corpus
+from kagami.kernel.scout import CorpusAccessError, DEFAULT_SEARCH_LIMIT, corpus_expand, search_corpus
 from kagami.store.run import open_run
 
 
@@ -59,6 +59,33 @@ def test_non_scout_role_is_refused_and_logs_nothing(tmp_path):
 
     events = _events(run_dir)
     assert not any(e["family"] == "retrieval" for e in events)
+
+
+def test_search_corpus_defaults_to_the_small_charter_limit_not_the_ports_own_default(tmp_path):
+    """Story 8.3: the charter's iteration discipline depends on a single
+    search call not being able to flood the corpus — DEFAULT_SEARCH_LIMIT
+    (8) must actually reach the provider, not just exist as a constant."""
+    run_dir, output_root = _open(tmp_path)
+    captured_limits = []
+
+    class _CapturingProvider(LiteratureProvider):
+        name = "capturing"
+
+        def search(self, query, limit=20):
+            captured_limits.append(limit)
+            return []
+
+        def paper_metadata(self, canonical_key):
+            raise NotImplementedError
+
+        def citation_graph(self, canonical_key):
+            raise NotImplementedError
+
+    search_corpus(run_dir, output_root, _CapturingProvider(), "q", role="scout")
+    assert captured_limits == [DEFAULT_SEARCH_LIMIT]
+
+    search_corpus(run_dir, output_root, _CapturingProvider(), "q", role="scout", limit=3)
+    assert captured_limits == [DEFAULT_SEARCH_LIMIT, 3]
 
 
 def test_second_search_reuses_the_cached_paper_card_across_runs(tmp_path):

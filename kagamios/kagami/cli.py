@@ -57,7 +57,7 @@ from kagami.kernel.refusal import DEFAULT_REFUSAL_CEILING, record_refusal_and_ch
 from kagami.kernel.report import ReportError, report_llm_call
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
-from kagami.kernel.scout import CorpusAccessError, corpus_expand, search_corpus
+from kagami.kernel.scout import CorpusAccessError, DEFAULT_SEARCH_LIMIT, corpus_expand, search_corpus
 from kagami.store.appraisal import AppraisalError, record_appraisal
 from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_skeptic_critique, skeptic_write
 from kagami.kernel.state_machine import StateMachineError, enter_state
@@ -220,7 +220,7 @@ def _cmd_corpus_search(args: argparse.Namespace) -> dict:
     config = load_config(Path.cwd())
     try:
         provider = resolve_provider(config)
-        return search_corpus(run_dir, output_root, provider, args.query, args.role)
+        return search_corpus(run_dir, output_root, provider, args.query, args.role, limit=args.limit)
     except (ProviderError, CorpusAccessError) as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -861,6 +861,9 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_search_parser.add_argument("--run-id", dest="run_id", required=True)
     corpus_search_parser.add_argument("--role", dest="role", required=True)
     corpus_search_parser.add_argument("--query", dest="query", required=True)
+    corpus_search_parser.add_argument(
+        "--limit", dest="limit", type=int, default=DEFAULT_SEARCH_LIMIT
+    )
     corpus_search_parser.set_defaults(func=_cmd_corpus_search)
 
     corpus_expand_parser = corpus_subparsers.add_parser("expand")
