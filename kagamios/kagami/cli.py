@@ -51,13 +51,19 @@ from kagami.kernel.locate import (
     validate_locate_exit,
 )
 from kagami.kernel.dispatch import DispatchError, resolve_model
-from kagami.kernel.metrics import compute_derived_metrics, count_full_pull_after_summary
+from kagami.kernel.metrics import (
+    DEFAULT_REDISCOVERY_WINDOW,
+    compute_derived_metrics,
+    compute_rediscovery_rate,
+    count_full_pull_after_summary,
+)
 from kagami.kernel.monitor import MonitorError, mark_dormant, monitor_sweep
 from kagami.kernel.refusal import DEFAULT_REFUSAL_CEILING, record_refusal_and_check_ceiling
 from kagami.kernel.report import ReportError, report_llm_call
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
-from kagami.kernel.scout import CorpusAccessError, corpus_expand, search_corpus
+from kagami.kernel.scout import CorpusAccessError, DEFAULT_SEARCH_LIMIT, corpus_expand, search_corpus
+from kagami.store.appraisal import AppraisalError, record_appraisal
 from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_skeptic_critique, skeptic_write
 from kagami.kernel.state_machine import StateMachineError, enter_state
 from kagami.kernel.synthesize import (
@@ -87,6 +93,7 @@ _SUBCOMMAND_DEST_NAMES = (
     "dissolution_command", "synthesize_command", "locate_command",
     "cartographer_command", "corpus_command", "ask_command",
     "metrics_command", "gate_command", "report_command", "dispatch_command",
+    "appraisal_command",
 )
 
 
@@ -218,8 +225,16 @@ def _cmd_corpus_search(args: argparse.Namespace) -> dict:
     config = load_config(Path.cwd())
     try:
         provider = resolve_provider(config)
-        return search_corpus(run_dir, output_root, provider, args.query, args.role)
+        return search_corpus(run_dir, output_root, provider, args.query, args.role, limit=args.limit)
     except (ProviderError, CorpusAccessError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_appraisal_record(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return record_appraisal(run_dir, args.paper_id, args.judgment, args.frame_version, args.reason)
+    except AppraisalError as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -493,6 +508,11 @@ def _cmd_metrics_derived(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     config = load_config(Path.cwd())
     return compute_derived_metrics(run_dir, config=config)
+
+
+def _cmd_metrics_rediscovery_rate(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return {"ok": True, **compute_rediscovery_rate(run_dir, window=args.window)}
 
 
 def _cmd_metrics_charter_audit(args: argparse.Namespace) -> dict:
@@ -851,6 +871,9 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_search_parser.add_argument("--run-id", dest="run_id", required=True)
     corpus_search_parser.add_argument("--role", dest="role", required=True)
     corpus_search_parser.add_argument("--query", dest="query", required=True)
+    corpus_search_parser.add_argument(
+        "--limit", dest="limit", type=int, default=DEFAULT_SEARCH_LIMIT
+    )
     corpus_search_parser.set_defaults(func=_cmd_corpus_search)
 
     corpus_expand_parser = corpus_subparsers.add_parser("expand")
@@ -904,6 +927,13 @@ def build_parser() -> argparse.ArgumentParser:
     derived_parser.add_argument("--run-id", dest="run_id", required=True)
     derived_parser.set_defaults(func=_cmd_metrics_derived)
 
+    rediscovery_rate_parser = metrics_subparsers.add_parser("rediscovery-rate")
+    rediscovery_rate_parser.add_argument("--run-id", dest="run_id", required=True)
+    rediscovery_rate_parser.add_argument(
+        "--window", dest="window", type=int, default=DEFAULT_REDISCOVERY_WINDOW
+    )
+    rediscovery_rate_parser.set_defaults(func=_cmd_metrics_rediscovery_rate)
+
     charter_audit_parser = metrics_subparsers.add_parser("charter-audit")
     charter_audit_parser.add_argument("--run-id", dest="run_id", required=True)
     charter_audit_parser.set_defaults(func=_cmd_metrics_charter_audit)
@@ -955,6 +985,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--operation-class", dest="operation_class", required=True
     )
     dispatch_resolve_parser.set_defaults(func=_cmd_dispatch_resolve)
+
+    appraisal_parser = subparsers.add_parser("appraisal")
+    appraisal_subparsers = appraisal_parser.add_subparsers(dest="appraisal_command", required=True)
+
+    appraisal_record_parser = appraisal_subparsers.add_parser("record")
+    appraisal_record_parser.add_argument("--run-id", dest="run_id", required=True)
+    appraisal_record_parser.add_argument("--paper-id", dest="paper_id", required=True)
+    appraisal_record_parser.add_argument("--judgment", dest="judgment", required=True)
+    appraisal_record_parser.add_argument("--frame-version", dest="frame_version", required=True)
+    appraisal_record_parser.add_argument("--reason", dest="reason", required=True)
+    appraisal_record_parser.set_defaults(func=_cmd_appraisal_record)
 
     return parser
 

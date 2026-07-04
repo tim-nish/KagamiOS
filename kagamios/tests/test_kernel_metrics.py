@@ -1,3 +1,5 @@
+import pytest
+
 from kagami.events import append_event
 from kagami.kernel.frame import complete_frame
 from kagami.kernel.metrics import (
@@ -7,6 +9,7 @@ from kagami.kernel.metrics import (
     compute_override_profile,
     compute_override_rate,
     compute_question_economics,
+    compute_rediscovery_rate,
     compute_token_ledger,
     compute_unprimed_vs_final_diff_at_frame,
     count_full_pull_after_summary,
@@ -305,3 +308,77 @@ def test_compute_derived_metrics_is_deterministic_across_repeated_calls(tmp_path
     first = compute_derived_metrics(tmp_path)
     second = compute_derived_metrics(tmp_path)
     assert first == second
+
+
+def test_rediscovery_rate_is_none_with_no_retrieval_events(tmp_path):
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 0
+    assert result["rediscovery_rate"] is None
+
+
+def test_rediscovery_rate_computes_fraction_of_reused_across_corpus_search_events(tmp_path):
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
+         "paper_ids": ["ppr-1", "ppr-2"], "reused": [False, True]},
+    )
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q2",
+         "paper_ids": ["ppr-3"], "reused": [True]},
+    )
+
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 3
+    assert result["rediscovery_rate"] == pytest.approx(2 / 3)
+
+
+def test_rediscovery_rate_includes_corpus_expand_edges(tmp_path):
+    append_event(
+        tmp_path, "retrieval",
+        {
+            "kind": "corpus_expand", "role": "scout", "provider": "stub",
+            "origin_paper_id": "ppr-1", "canonical_key": "10.1/a",
+            "edges": [
+                {"from": "ppr-1", "to": "ppr-2", "direction": "cited_by", "reused": True},
+                {"from": "ppr-1", "to": "ppr-3", "direction": "references", "reused": False},
+            ],
+        },
+    )
+
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 2
+    assert result["rediscovery_rate"] == pytest.approx(0.5)
+
+
+def test_rediscovery_rate_respects_the_window_using_only_the_most_recent_lookups(tmp_path):
+    for reused in (False, False, False, True, True):
+        append_event(
+            tmp_path, "retrieval",
+            {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
+             "paper_ids": ["ppr-x"], "reused": [reused]},
+        )
+
+    result = compute_rediscovery_rate(tmp_path, window=2)
+    assert result["sample_size"] == 2
+    assert result["rediscovery_rate"] == 1.0  # only the last two (both reused) are in-window
+
+
+def test_rediscovery_rate_is_deterministic_across_repeated_calls(tmp_path):
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
+         "paper_ids": ["ppr-1"], "reused": [True]},
+    )
+    assert compute_rediscovery_rate(tmp_path) == compute_rediscovery_rate(tmp_path)
+
+
+def test_compute_derived_metrics_carries_the_rediscovery_rate(tmp_path):
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
+         "paper_ids": ["ppr-1"], "reused": [True]},
+    )
+    metrics = compute_derived_metrics(tmp_path)
+    assert metrics["rediscovery_rate"]["sample_size"] == 1
+    assert metrics["rediscovery_rate"]["rediscovery_rate"] == 1.0

@@ -6,6 +6,12 @@ from kagami.events import append_event
 
 SCOUT_ROLE = "scout"
 
+# Charter discipline (agents/scout.md, Story 8.3): a small default limit so
+# a single search doesn't anchor the whole corpus on one query's vocabulary
+# — the CLI/charter previously had no way to lower the port's own
+# `limit=20` default at all.
+DEFAULT_SEARCH_LIMIT = 8
+
 # FR-50: the two directions a citation-graph expansion can walk, matching
 # FR-51's port-contract keys exactly — used both as the edge-list
 # `direction` value and as the lookup key into `citation_graph`'s result.
@@ -17,7 +23,12 @@ class CorpusAccessError(Exception):
 
 
 def search_corpus(
-    run_dir: Path, output_root: Path, provider: LiteratureProvider, query: str, role: str
+    run_dir: Path,
+    output_root: Path,
+    provider: LiteratureProvider,
+    query: str,
+    role: str,
+    limit: int = DEFAULT_SEARCH_LIMIT,
 ) -> dict:
     """FR-25: Scout is the sole corpus-touching role.
 
@@ -26,20 +37,26 @@ def search_corpus(
     non-Scout call can ever show a raw-corpus retrieval in the event log.
     Each result's paper card is looked up by content-derived id (AD-18) and
     computed only on a cache miss.
+
+    `limit` defaults to `DEFAULT_SEARCH_LIMIT` (8), not the port's own
+    `search(query, limit=20)` default — the charter's iteration discipline
+    (Story 8.3) depends on a single call not being able to flood the corpus.
     """
     if role != SCOUT_ROLE:
         raise CorpusAccessError(
             f"role '{role}' may not query the raw corpus; only '{SCOUT_ROLE}' can (FR-25)"
         )
 
-    raw_results = provider.search(query)
+    raw_results = provider.search(query, limit=limit)
     papers = []
     paper_ids = []
+    reused_flags = []
     for raw in raw_results:
         canonical_key = raw["canonical_key"]
         card, reused = get_or_create_paper_card(output_root, canonical_key, lambda raw=raw: raw)
         papers.append({**card, "reused": reused})
         paper_ids.append(card["id"])
+        reused_flags.append(reused)
 
     append_event(
         run_dir,
@@ -50,6 +67,11 @@ def search_corpus(
             "provider": provider.name,
             "query": query,
             "paper_ids": paper_ids,
+            # FR-53: the cache-hit signal per paper_ids' position — kept on
+            # the event itself (not just the returned `papers`) so the
+            # rediscovery-rate metric is computable purely from the event
+            # log, never by re-running the search (AD-11).
+            "reused": reused_flags,
         },
     )
 
@@ -92,7 +114,12 @@ def corpus_expand(
                 output_root, neighbor_canonical_key, lambda raw=raw: raw
             )
             neighbor_paper_ids.append(card["id"])
-            edges.append({"from": origin_paper_id, "to": card["id"], "direction": direction})
+            # FR-53: `reused` rides on the edge itself for the same reason
+            # search_corpus keeps it on the event — the rediscovery-rate
+            # metric reads only the event log, never re-runs a query.
+            edges.append(
+                {"from": origin_paper_id, "to": card["id"], "direction": direction, "reused": reused}
+            )
 
     append_event(
         run_dir,
