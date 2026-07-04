@@ -51,7 +51,12 @@ from kagami.kernel.locate import (
     validate_locate_exit,
 )
 from kagami.kernel.dispatch import DispatchError, resolve_model
-from kagami.kernel.metrics import compute_derived_metrics, count_full_pull_after_summary
+from kagami.kernel.metrics import (
+    DEFAULT_REDISCOVERY_WINDOW,
+    compute_derived_metrics,
+    compute_rediscovery_rate,
+    count_full_pull_after_summary,
+)
 from kagami.kernel.monitor import MonitorError, mark_dormant, monitor_sweep
 from kagami.kernel.refusal import DEFAULT_REFUSAL_CEILING, record_refusal_and_check_ceiling
 from kagami.kernel.report import ReportError, report_llm_call
@@ -505,6 +510,11 @@ def _cmd_metrics_derived(args: argparse.Namespace) -> dict:
     return compute_derived_metrics(run_dir, config=config)
 
 
+def _cmd_metrics_rediscovery_rate(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    return {"ok": True, **compute_rediscovery_rate(run_dir, window=args.window)}
+
+
 def _cmd_metrics_charter_audit(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return audit_charter_violations(run_dir)
@@ -916,6 +926,13 @@ def build_parser() -> argparse.ArgumentParser:
     derived_parser = metrics_subparsers.add_parser("derived")
     derived_parser.add_argument("--run-id", dest="run_id", required=True)
     derived_parser.set_defaults(func=_cmd_metrics_derived)
+
+    rediscovery_rate_parser = metrics_subparsers.add_parser("rediscovery-rate")
+    rediscovery_rate_parser.add_argument("--run-id", dest="run_id", required=True)
+    rediscovery_rate_parser.add_argument(
+        "--window", dest="window", type=int, default=DEFAULT_REDISCOVERY_WINDOW
+    )
+    rediscovery_rate_parser.set_defaults(func=_cmd_metrics_rediscovery_rate)
 
     charter_audit_parser = metrics_subparsers.add_parser("charter-audit")
     charter_audit_parser.add_argument("--run-id", dest="run_id", required=True)

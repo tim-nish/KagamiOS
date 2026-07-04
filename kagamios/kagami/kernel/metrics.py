@@ -220,6 +220,43 @@ def compute_budget_warning(token_ledger: dict, config: dict | None = None) -> di
     }
 
 
+DEFAULT_REDISCOVERY_WINDOW = 20
+
+
+def compute_rediscovery_rate(run_dir: Path, window: int = DEFAULT_REDISCOVERY_WINDOW) -> dict:
+    """FR-53: a warn-only saturation signal — of the run's most recent
+    `window` paper lookups (across both `corpus_search` and `corpus_expand`
+    retrieval events, in chronological order), what fraction returned a
+    paper already seen earlier in the run.
+
+    Reads purely off each retrieval event's own `reused` flags (Story 8.1's
+    `search_corpus`/`corpus_expand` log these directly, the same cache-hit
+    signal FR-13 already produces) — no LLM call, no re-running a query,
+    and re-running this over the same log always yields the same number
+    (same determinism contract as FR-37's other derived metrics). This is
+    reporting only: nothing here blocks, halts, or alters Scout's next
+    action, the same posture as AD-26(c)'s token-budget warning.
+    """
+    reused_flags: list[bool] = []
+    for event in _read_events(run_dir):
+        if event.get("family") != "retrieval":
+            continue
+        if event.get("kind") == "corpus_search":
+            reused_flags.extend(bool(flag) for flag in event.get("reused") or [])
+        elif event.get("kind") == "corpus_expand":
+            reused_flags.extend(bool(edge.get("reused")) for edge in event.get("edges") or [])
+
+    windowed = reused_flags[-window:] if window > 0 else reused_flags
+    sample_size = len(windowed)
+    rediscovery_rate = (sum(windowed) / sample_size) if sample_size else None
+
+    return {
+        "window": window,
+        "sample_size": sample_size,
+        "rediscovery_rate": rediscovery_rate,
+    }
+
+
 def compute_decision_block(run_dir: Path) -> dict:
     """FR-37/PRD §8: at MVP's Gap Register terminal, only the fields
     reachable without Propose/Decide are populated — candidate origins and
@@ -235,10 +272,11 @@ def compute_decision_block(run_dir: Path) -> dict:
 
 def compute_derived_metrics(run_dir: Path, registry=None, config: dict | None = None) -> dict:
     """FR-37: question economics, a token ledger, an override profile, a
-    decision block, and (AD-26c) a gate-time budget warning — all
-    deterministic computation over the run's own artifact store and event
-    log. Re-running this over the same log always produces identical
-    numbers; nothing here is an LLM judgment call."""
+    decision block, (AD-26c) a gate-time budget warning, and (FR-53) a
+    rediscovery-rate saturation signal — all deterministic computation over
+    the run's own artifact store and event log. Re-running this over the
+    same log always produces identical numbers; nothing here is an LLM
+    judgment call."""
     registry = registry or load_registry()
     token_ledger = compute_token_ledger(run_dir)
     return {
@@ -248,4 +286,5 @@ def compute_derived_metrics(run_dir: Path, registry=None, config: dict | None = 
         "override_profile": compute_override_profile(run_dir, registry),
         "decision_block": compute_decision_block(run_dir),
         "budget_warning": compute_budget_warning(token_ledger, config),
+        "rediscovery_rate": compute_rediscovery_rate(run_dir),
     }

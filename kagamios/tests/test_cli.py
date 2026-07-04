@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from kagami.cli import main
 
 
@@ -896,6 +898,49 @@ def test_metrics_derived_reports_all_four_blocks_through_cli(tmp_path, monkeypat
     assert result["decision_block"]["candidate_origins"] == []
     assert result["decision_block"]["falsifiable_claims"] == []
     assert result["decision_block"]["provisional_count"] == 0
+    assert result["rediscovery_rate"]["sample_size"] == 0
+    assert result["rediscovery_rate"]["rediscovery_rate"] is None
+
+
+def test_metrics_rediscovery_rate_cli_computes_over_real_corpus_search_events(
+    tmp_path, monkeypatch, capsys
+):
+    import kagami.cli as cli_module
+    from kagami.corpus.provider import LiteratureProvider
+
+    class _StubProvider(LiteratureProvider):
+        name = "stub"
+
+        def __init__(self):
+            self._calls = 0
+
+        def search(self, query, limit=20):
+            self._calls += 1
+            # First call is a fresh paper; second call re-finds the same one.
+            return [{"canonical_key": "10.1/a", "title": "Paper A", "source": "stub"}]
+
+        def paper_metadata(self, canonical_key):
+            raise NotImplementedError
+
+        def citation_graph(self, canonical_key):
+            raise NotImplementedError
+
+    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None: _StubProvider())
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-rediscovery-test"])
+    capsys.readouterr()
+
+    main(["corpus", "search", "--run-id", "run-rediscovery-test", "--role", "scout", "--query", "q"])
+    capsys.readouterr()
+    main(["corpus", "search", "--run-id", "run-rediscovery-test", "--role", "scout", "--query", "q"])
+    capsys.readouterr()
+
+    exit_code = main(["metrics", "rediscovery-rate", "--run-id", "run-rediscovery-test"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert result["sample_size"] == 2
+    assert result["rediscovery_rate"] == pytest.approx(0.5)  # first miss, second reused
 
 
 def test_metrics_charter_audit_detects_a_real_historian_violation_through_cli(tmp_path, monkeypatch, capsys):

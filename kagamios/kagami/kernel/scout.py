@@ -50,11 +50,13 @@ def search_corpus(
     raw_results = provider.search(query, limit=limit)
     papers = []
     paper_ids = []
+    reused_flags = []
     for raw in raw_results:
         canonical_key = raw["canonical_key"]
         card, reused = get_or_create_paper_card(output_root, canonical_key, lambda raw=raw: raw)
         papers.append({**card, "reused": reused})
         paper_ids.append(card["id"])
+        reused_flags.append(reused)
 
     append_event(
         run_dir,
@@ -65,6 +67,11 @@ def search_corpus(
             "provider": provider.name,
             "query": query,
             "paper_ids": paper_ids,
+            # FR-53: the cache-hit signal per paper_ids' position — kept on
+            # the event itself (not just the returned `papers`) so the
+            # rediscovery-rate metric is computable purely from the event
+            # log, never by re-running the search (AD-11).
+            "reused": reused_flags,
         },
     )
 
@@ -107,7 +114,12 @@ def corpus_expand(
                 output_root, neighbor_canonical_key, lambda raw=raw: raw
             )
             neighbor_paper_ids.append(card["id"])
-            edges.append({"from": origin_paper_id, "to": card["id"], "direction": direction})
+            # FR-53: `reused` rides on the edge itself for the same reason
+            # search_corpus keeps it on the event — the rediscovery-rate
+            # metric reads only the event log, never re-runs a query.
+            edges.append(
+                {"from": origin_paper_id, "to": card["id"], "direction": direction, "reused": reused}
+            )
 
     append_event(
         run_dir,
