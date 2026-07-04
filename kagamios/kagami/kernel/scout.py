@@ -1,10 +1,15 @@
 from pathlib import Path
 
-from kagami.corpus.cache import get_or_create_paper_card
+from kagami.corpus.cache import get_or_create_paper_card, mint_paper_id
 from kagami.corpus.provider import LiteratureProvider
 from kagami.events import append_event
 
 SCOUT_ROLE = "scout"
+
+# FR-50: the two directions a citation-graph expansion can walk, matching
+# FR-51's port-contract keys exactly — used both as the edge-list
+# `direction` value and as the lookup key into `citation_graph`'s result.
+EXPANSION_DIRECTIONS = ("cited_by", "references")
 
 
 class CorpusAccessError(Exception):
@@ -49,3 +54,57 @@ def search_corpus(
     )
 
     return {"ok": True, "papers": papers}
+
+
+def corpus_expand(
+    run_dir: Path, output_root: Path, provider: LiteratureProvider, canonical_key: str, role: str
+) -> dict:
+    """FR-50: Scout's second sanctioned corpus-touching action — grow
+    outward from a paper already in the corpus via its citation graph,
+    rather than only requerying with different keywords.
+
+    Mirrors `search_corpus`'s role gate exactly (FR-25): refused before any
+    provider is queried or any event is logged. For each neighbor id
+    `citation_graph` (FR-51) returns, `paper_metadata` fetches its title/
+    source so it can be minted through the same `get_or_create_paper_card`
+    path a search result uses (AD-18) — an expanded card and a searched
+    card are indistinguishable in the cache. The one `retrieval` event this
+    appends carries an explicit edge list; replaying a run's `corpus_search`
+    and `corpus_expand` events reconstructs the observed citation graph
+    exactly, with no separate graph store anywhere (AD-11's derived-state
+    pattern, same as AD-20's per-cluster state).
+    """
+    if role != SCOUT_ROLE:
+        raise CorpusAccessError(
+            f"role '{role}' may not query the raw corpus; only '{SCOUT_ROLE}' can (FR-25, FR-50)"
+        )
+
+    origin_paper_id = mint_paper_id(canonical_key)
+    graph = provider.citation_graph(canonical_key)
+
+    edges = []
+    neighbor_paper_ids = []
+    for direction in EXPANSION_DIRECTIONS:
+        for neighbor_key in graph.get(direction) or []:
+            raw = provider.paper_metadata(neighbor_key)
+            neighbor_canonical_key = raw.get("canonical_key") or neighbor_key
+            card, reused = get_or_create_paper_card(
+                output_root, neighbor_canonical_key, lambda raw=raw: raw
+            )
+            neighbor_paper_ids.append(card["id"])
+            edges.append({"from": origin_paper_id, "to": card["id"], "direction": direction})
+
+    append_event(
+        run_dir,
+        "retrieval",
+        {
+            "kind": "corpus_expand",
+            "role": SCOUT_ROLE,
+            "provider": provider.name,
+            "origin_paper_id": origin_paper_id,
+            "canonical_key": canonical_key,
+            "edges": edges,
+        },
+    )
+
+    return {"ok": True, "origin_paper_id": origin_paper_id, "neighbor_paper_ids": neighbor_paper_ids, "edges": edges}

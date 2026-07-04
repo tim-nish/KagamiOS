@@ -27,4 +27,9 @@ class LiteratureProvider(ABC):
 
     @abstractmethod
     def citation_graph(self, canonical_key: str) -> dict:
-        ...
+        """FR-51: returns `{"canonical_key", "cited_by": [...], "references": [...]}`
+        — both keys always present, even when empty. `cited_by` is papers
+        that cite this one, `references` is papers this one cites. An
+        adapter with no real source for one or both directions (arXiv,
+        GitHub, as of this writing) legitimately returns an empty list —
+        an exposed provider bias, not a gap to paper over."""
