@@ -58,6 +58,7 @@ from kagami.kernel.report import ReportError, report_llm_call
 from kagami.kernel.profile import validate_minimal_profile
 from kagami.kernel.repair import apply_tier2_repair, repair_artifact
 from kagami.kernel.scout import CorpusAccessError, corpus_expand, search_corpus
+from kagami.store.appraisal import AppraisalError, record_appraisal
 from kagami.kernel.skeptic import SkepticError, build_skeptic_context, record_skeptic_critique, skeptic_write
 from kagami.kernel.state_machine import StateMachineError, enter_state
 from kagami.kernel.synthesize import (
@@ -87,6 +88,7 @@ _SUBCOMMAND_DEST_NAMES = (
     "dissolution_command", "synthesize_command", "locate_command",
     "cartographer_command", "corpus_command", "ask_command",
     "metrics_command", "gate_command", "report_command", "dispatch_command",
+    "appraisal_command",
 )
 
 
@@ -220,6 +222,14 @@ def _cmd_corpus_search(args: argparse.Namespace) -> dict:
         provider = resolve_provider(config)
         return search_corpus(run_dir, output_root, provider, args.query, args.role)
     except (ProviderError, CorpusAccessError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_appraisal_record(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    try:
+        return record_appraisal(run_dir, args.paper_id, args.judgment, args.frame_version, args.reason)
+    except AppraisalError as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -955,6 +965,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--operation-class", dest="operation_class", required=True
     )
     dispatch_resolve_parser.set_defaults(func=_cmd_dispatch_resolve)
+
+    appraisal_parser = subparsers.add_parser("appraisal")
+    appraisal_subparsers = appraisal_parser.add_subparsers(dest="appraisal_command", required=True)
+
+    appraisal_record_parser = appraisal_subparsers.add_parser("record")
+    appraisal_record_parser.add_argument("--run-id", dest="run_id", required=True)
+    appraisal_record_parser.add_argument("--paper-id", dest="paper_id", required=True)
+    appraisal_record_parser.add_argument("--judgment", dest="judgment", required=True)
+    appraisal_record_parser.add_argument("--frame-version", dest="frame_version", required=True)
+    appraisal_record_parser.add_argument("--reason", dest="reason", required=True)
+    appraisal_record_parser.set_defaults(func=_cmd_appraisal_record)
 
     return parser
 

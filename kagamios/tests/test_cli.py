@@ -768,6 +768,21 @@ def test_corpus_expand_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsy
     assert result["ok"] is False
 
 
+def test_appraisal_record_cli_writes_an_entry(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-appraisal-test"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["appraisal", "record", "--run-id", "run-appraisal-test", "--paper-id", "ppr-abc",
+         "--judgment", "relevant", "--frame-version", "frame-v1", "--reason", "anchors the cluster"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert result["id"].startswith("apr-")
+
+
 def test_ask_emit_then_answer_then_revise_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-ask-test"])

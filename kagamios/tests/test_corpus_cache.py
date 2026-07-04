@@ -54,3 +54,20 @@ def test_cache_survives_across_separate_calls_reading_the_same_output_root(tmp_p
     assert reused is True
     assert calls["n"] == 0
     assert card["title"] == "Paper A"
+
+
+@pytest.mark.parametrize("field", ["relevance", "priority", "judgment", "meaningful_to_me"])
+def test_get_or_create_refuses_a_frame_dependent_field_on_the_raw_input(tmp_path, field):
+    """FR-52/AD-28: a paper card is a frame-independent fact — a
+    frame-dependent valuation may never land on it, even if a caller's
+    compute() result happens to carry one."""
+    with pytest.raises(CorpusCacheError):
+        get_or_create_paper_card(tmp_path, "10.1/abc", lambda: {"title": "A", field: "x"})
+
+    assert not (tmp_path / "corpus" / f"{mint_paper_id('10.1/abc')}.yaml").is_file()
+
+
+def test_get_or_create_with_no_frame_dependent_fields_still_succeeds(tmp_path):
+    card, reused = get_or_create_paper_card(tmp_path, "10.1/xyz", lambda: {"title": "Clean"})
+    assert reused is False
+    assert card["title"] == "Clean"

@@ -9,9 +9,25 @@ from kagami.store.locking import acquire_run_lock
 
 PAPER_CARD_SCHEMA_VERSION = 1
 
+# FR-52/AD-28: a paper card is a frame-independent fact, cached forever
+# across runs — a frame-dependent valuation may never land on it. This is
+# the hard schema invariant enforced at the write chokepoint; a judgment
+# about a paper belongs in the appraisal store (`kagami/store/appraisal.py`),
+# stamped with the frame version that produced it, never here.
+FORBIDDEN_CARD_FIELDS = frozenset({"relevance", "priority", "judgment", "meaningful_to_me"})
+
 
 class CorpusCacheError(Exception):
     pass
+
+
+def _reject_frame_dependent_fields(raw: dict) -> None:
+    present = FORBIDDEN_CARD_FIELDS & set(raw)
+    if present:
+        raise CorpusCacheError(
+            f"paper card write refused: frame-dependent field(s) {sorted(present)} may never "
+            "appear on a paper card (FR-52/AD-28) — record a judgment via the appraisal store instead"
+        )
 
 
 def mint_paper_id(canonical_key: str) -> str:
@@ -50,6 +66,7 @@ def get_or_create_paper_card(
             return yaml.safe_load(path.read_text()), True
 
         raw = compute()
+        _reject_frame_dependent_fields(raw)
         card = {
             "id": paper_id,
             "schema_version": PAPER_CARD_SCHEMA_VERSION,
