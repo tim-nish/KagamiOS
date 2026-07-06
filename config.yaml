@@ -1,0 +1,4 @@
+literature_provider: openalex
+model_tiers:
+  cheap_model: claude-haiku-4-5-20251001
+  frontier_model: claude-sonnet-5
