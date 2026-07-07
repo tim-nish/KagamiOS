@@ -35,7 +35,7 @@ This is the **only** sanctioned way to touch the output root. The PreToolUse hoo
 
 ## Hard rule: never `accept` a terminal-adjacent artifact without validating its exit criteria first
 
-Story 7.5's golden toy run found that `kagami accept` only checks generic common-metadata completeness — it does **not** check a type's own exit criteria (e.g. a Gap Register's `why_does_this_gap_exist`/`meaningful_to_me`, a Cluster Dossier's representative-paper `human_read` flags). It is possible to `accept` a Gap Register that's missing required content, and `kagami locate check-terminal` will then report the run as MVP-complete on that incomplete artifact — a real, currently-uncaught failure mode, not a hypothetical one (see `story-7.5-verification.md`'s Finding #1).
+Story 7.5's golden toy run found that `kagami accept` only checks generic common-metadata completeness — it does **not** check a type's own exit criteria (e.g. a Gap Register's `why_does_this_gap_exist`/`meaningful_to_me`, a Cluster Dossier's representative-paper rating/confidence confirmations, FR-59). It is possible to `accept` a Gap Register that's missing required content, and `kagami locate check-terminal` will then report the run as MVP-complete on that incomplete artifact — a real, currently-uncaught failure mode, not a hypothetical one (see `story-7.5-verification.md`'s Finding #1).
 
 Until `kagami accept` enforces this itself, **you must call the matching validator before ever calling `accept` on a Cluster Dossier, Landscape Synthesis, or Gap Register**, and treat a non-empty `violations` list as a hard stop, not a suggestion:
 
@@ -90,6 +90,28 @@ If the call refuses (a required field missing, a constitutive-triad field you at
 ### 4. Confirm
 
 Report the accepted Inquiry Frame's id and summary back to the researcher. The run's derived state is now `frame` (soon to advance to `map` in a future story); do not call `kagami state enter map` from this skill yet — Map's role subagents don't exist until Story 7.3.
+
+## Question style: structured-first outside Frame
+
+Frame's unprimed question (`## 2` above) is deliberately free-text-first — FR-24's ask-before-show protects the researcher's own unprimed framing, and that discipline is untouched by this section. Nothing here changes how Frame is run.
+
+**Every other question you ask — at Map, Deepen, or any later state — defaults to structured, multiple-choice with a mandatory free-text escape hatch, not open-ended prose.** For each question:
+
+1. Offer a small set of concrete options (2–4 is usually right).
+2. Name what changes under each answer — the researcher should be able to tell from the question alone what picking option A vs. B actually *does* to the run, not just abstractly what it means.
+3. Always include an explicit "something else" free-text option — never force a fit that isn't there.
+
+For example, when eliciting a Deepen representative-paper confirmation (FR-59 — a rating + confidence + optional note, not a binary human_read flag), ask something shaped like: *"How strong is ppr-3's fit to this cluster? (a) Strong anchor — this is why the cluster exists (b) Solid but not foundational (c) Weak/tangential, keeping it for now (d) Something else: <your own words>"* — then map the answer to `--rating`/`--confidence`, and always let the free-text option carry straight into `--note`:
+
+```
+uv run --project ${CLAUDE_PLUGIN_ROOT} kagami dossier mark-read --run-id <run-id> --art-id <dossier-id> \
+  --paper-id <paper-id> --rating "<their answer>" --confidence "<their answer>" \
+  --actor human --note "<optional free text>"
+```
+
+`--actor human` is required and self-declared by you as the Interviewer on the researcher's behalf, exactly as `--role` is elsewhere (AD-4) — the chokepoint refuses anything else (FR-58/AD-30); this convention doesn't change or route around that.
+
+This is prompt discipline, not core-enforced (AD-1's honest-gap framing) — nothing in the core refuses an open-ended question you ask anyway. Verified per AD-27 (recorded transcript + checklist review), the same convention Story 8.3's Scout charter discipline used, not by pytest.
 
 ## What this skill deliberately does not do yet
 

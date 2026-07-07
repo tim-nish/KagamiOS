@@ -123,7 +123,9 @@ def test_a_repeated_violations_check_never_escalates_even_past_the_ceiling(tmp_p
         "cluster-dossier",
         {
             "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
-            "summary": "", "representative_papers": [{"paper_id": "ppr-1", "human_read": False}],
+            "summary": "", "representative_papers": [
+                {"paper_id": "ppr-1", "rating": None, "confidence": None, "note": "", "actor": None}
+            ],
         },
         sections={"evolution": "draft text"},
     )

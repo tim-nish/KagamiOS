@@ -482,7 +482,9 @@ def test_dossier_mark_read_and_validate_deepen_exit_round_trip_through_cli(tmp_p
         {
             "depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed",
             "summary": "",
-            "representative_papers": [{"paper_id": "ppr-1", "human_read": False, "reaction": ""}],
+            "representative_papers": [
+                {"paper_id": "ppr-1", "rating": None, "confidence": None, "note": "", "actor": None}
+            ],
         },
         sections={"evolution": "founding problem"},
     )
@@ -498,7 +500,8 @@ def test_dossier_mark_read_and_validate_deepen_exit_round_trip_through_cli(tmp_p
 
     exit_code = main(
         ["dossier", "mark-read", "--run-id", "run-dossier-test", "--art-id", dossier["id"],
-         "--paper-id", "ppr-1", "--reaction", "foundational", "--actor", "historian"]
+         "--paper-id", "ppr-1", "--rating", "strong", "--confidence", "high",
+         "--note", "foundational", "--actor", "historian"]
     )
     refused_result = json.loads(capsys.readouterr().out)
     assert exit_code == 1
@@ -506,7 +509,8 @@ def test_dossier_mark_read_and_validate_deepen_exit_round_trip_through_cli(tmp_p
 
     exit_code = main(
         ["dossier", "mark-read", "--run-id", "run-dossier-test", "--art-id", dossier["id"],
-         "--paper-id", "ppr-1", "--reaction", "foundational", "--actor", "human"]
+         "--paper-id", "ppr-1", "--rating", "strong", "--confidence", "high",
+         "--note", "foundational", "--actor", "human"]
     )
     mark_result = json.loads(capsys.readouterr().out)
     assert exit_code == 0
