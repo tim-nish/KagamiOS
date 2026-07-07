@@ -255,7 +255,9 @@ def _cmd_corpus_search(args: argparse.Namespace) -> dict:
 def _cmd_appraisal_record(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     try:
-        return record_appraisal(run_dir, args.paper_id, args.judgment, args.frame_version, args.reason)
+        return record_appraisal(
+            run_dir, args.paper_id, args.judgment, args.frame_version, args.reason, args.role
+        )
     except AppraisalError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -363,7 +365,9 @@ def _cmd_dossier_create(args: argparse.Namespace) -> dict:
 def _cmd_dossier_mark_read(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     try:
-        return mark_representative_paper_read(run_dir, args.art_id, args.paper_id, args.reaction)
+        return mark_representative_paper_read(
+            run_dir, args.art_id, args.paper_id, args.reaction, args.actor
+        )
     except DossierError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -779,6 +783,7 @@ def build_parser() -> argparse.ArgumentParser:
     dossier_mark_read_parser.add_argument("--art-id", dest="art_id", required=True)
     dossier_mark_read_parser.add_argument("--paper-id", dest="paper_id", required=True)
     dossier_mark_read_parser.add_argument("--reaction", dest="reaction", required=True)
+    dossier_mark_read_parser.add_argument("--actor", dest="actor", required=True)
     dossier_mark_read_parser.set_defaults(func=_cmd_dossier_mark_read)
 
     dossier_validate_parser = dossier_subparsers.add_parser("validate-deepen-exit")
@@ -1057,6 +1062,7 @@ def build_parser() -> argparse.ArgumentParser:
     appraisal_record_parser.add_argument("--judgment", dest="judgment", required=True)
     appraisal_record_parser.add_argument("--frame-version", dest="frame_version", required=True)
     appraisal_record_parser.add_argument("--reason", dest="reason", required=True)
+    appraisal_record_parser.add_argument("--role", dest="role", required=True)
     appraisal_record_parser.set_defaults(func=_cmd_appraisal_record)
 
     return parser

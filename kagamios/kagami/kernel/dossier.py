@@ -3,6 +3,12 @@ from pathlib import Path
 from kagami.registry import load_registry
 from kagami.store.artifact import create_artifact, read_current, update_frontmatter_field
 
+# FR-58/AD-30: the sole actor value `mark_representative_paper_read` ever
+# accepts — `human_read` means what its name says only if no AI-declared
+# actor can set it, the same self-declared-but-enforced trust model AD-4
+# uses for `role`, just checked against a single allowed value here.
+HUMAN_ACTOR = "human"
+
 
 class DossierError(Exception):
     pass
@@ -38,10 +44,24 @@ def create_cluster_dossier(
     )
 
 
-def mark_representative_paper_read(run_dir: Path, art_id: str, paper_id: str, reaction: str) -> dict:
-    """FR-28: the researcher's own reading — not the AI's draft — closes out
-    a cluster. Marks a representative paper `human_read` with a one-line
-    reaction."""
+def mark_representative_paper_read(
+    run_dir: Path, art_id: str, paper_id: str, reaction: str, actor: str
+) -> dict:
+    """FR-28/FR-58/AD-30: the researcher's own reading — not the AI's draft
+    — closes out a cluster. Marks a representative paper `human_read` with
+    a one-line reaction.
+
+    `actor` is mandatory and checked *before* any mutation: a call
+    declaring anything other than `HUMAN_ACTOR` is refused at this
+    chokepoint, the same enforcement class as AD-28's forbidden-fields
+    check on paper cards — `human_read`'s name asserts an owner, and this
+    is what makes that assertion true rather than trusted on say-so.
+    """
+    if actor != HUMAN_ACTOR:
+        raise DossierError(
+            f"mark-read refused: actor '{actor}' is not the human researcher — only "
+            f"'{HUMAN_ACTOR}' may set human_read (FR-58/AD-30)"
+        )
 
     def _update(papers):
         papers = papers or []
@@ -63,6 +83,7 @@ def mark_representative_paper_read(run_dir: Path, art_id: str, paper_id: str, re
             "kind": "representative_paper_marked_read",
             "artifact_id": art_id,
             "paper_id": paper_id,
+            "actor": actor,
         },
     )
 
