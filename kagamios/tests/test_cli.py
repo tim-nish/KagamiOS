@@ -943,7 +943,7 @@ def test_metrics_rediscovery_rate_cli_computes_over_real_corpus_search_events(
     assert result["rediscovery_rate"] == pytest.approx(0.5)  # first miss, second reused
 
 
-def test_metrics_charter_audit_detects_a_real_historian_violation_through_cli(tmp_path, monkeypatch, capsys):
+def test_metrics_charter_audit_detects_a_refused_historian_write_through_cli(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 
     monkeypatch.chdir(tmp_path)
@@ -965,9 +965,12 @@ def test_metrics_charter_audit_detects_a_real_historian_violation_through_cli(tm
         "violation_count": 0,
         "violations": {
             "scout_produced_interpretation": [],
+            "non_scout_touched_raw_corpus": [],
+        },
+        "refusals_held": 0,
+        "refusals": {
             "skeptic_proposed_an_alternative": [],
             "historian_spoke_outside_evolution": [],
-            "non_scout_touched_raw_corpus": [],
         },
     }
 
@@ -979,10 +982,12 @@ def test_metrics_charter_audit_detects_a_real_historian_violation_through_cli(tm
     capsys.readouterr()
 
     exit_code = main(["metrics", "charter-audit", "--run-id", "run-charter-audit-test"])
-    violated_result = json.loads(capsys.readouterr().out)
+    refused_result = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert violated_result["violation_count"] == 1
-    assert len(violated_result["violations"]["historian_spoke_outside_evolution"]) == 1
+    # A guard doing its job (FR-28) is a refusal, never a violation.
+    assert refused_result["violation_count"] == 0
+    assert refused_result["refusals_held"] == 1
+    assert len(refused_result["refusals"]["historian_spoke_outside_evolution"]) == 1
 
 
 def test_metrics_shared_payload_refuses_by_default_then_succeeds_once_opted_in_through_cli(
