@@ -29,6 +29,7 @@ def search_corpus(
     query: str,
     role: str,
     limit: int = DEFAULT_SEARCH_LIMIT,
+    administrative: bool = False,
 ) -> dict:
     """FR-25: Scout is the sole corpus-touching role.
 
@@ -41,6 +42,12 @@ def search_corpus(
     `limit` defaults to `DEFAULT_SEARCH_LIMIT` (8), not the port's own
     `search(query, limit=20)` default — the charter's iteration discipline
     (Story 8.3) depends on a single call not being able to flood the corpus.
+
+    `administrative` (FR-57): self-declared by the caller, the same trust
+    model AD-4 already uses for `role` — a non-exploration lookup (e.g. an
+    orchestrator convenience re-query) sets it explicitly at the point of
+    issuance, never inferred after the fact. `compute_rediscovery_rate`
+    excludes any event carrying it.
     """
     if role != SCOUT_ROLE:
         raise CorpusAccessError(
@@ -72,6 +79,7 @@ def search_corpus(
             # rediscovery-rate metric is computable purely from the event
             # log, never by re-running the search (AD-11).
             "reused": reused_flags,
+            "administrative": administrative,
         },
     )
 
@@ -79,7 +87,12 @@ def search_corpus(
 
 
 def corpus_expand(
-    run_dir: Path, output_root: Path, provider: LiteratureProvider, canonical_key: str, role: str
+    run_dir: Path,
+    output_root: Path,
+    provider: LiteratureProvider,
+    canonical_key: str,
+    role: str,
+    administrative: bool = False,
 ) -> dict:
     """FR-50: Scout's second sanctioned corpus-touching action — grow
     outward from a paper already in the corpus via its citation graph,
@@ -95,6 +108,9 @@ def corpus_expand(
     and `corpus_expand` events reconstructs the observed citation graph
     exactly, with no separate graph store anywhere (AD-11's derived-state
     pattern, same as AD-20's per-cluster state).
+
+    `administrative` (FR-57): see `search_corpus` — same self-declared,
+    at-issuance flag, same exclusion from `compute_rediscovery_rate`.
     """
     if role != SCOUT_ROLE:
         raise CorpusAccessError(
@@ -131,6 +147,7 @@ def corpus_expand(
             "origin_paper_id": origin_paper_id,
             "canonical_key": canonical_key,
             "edges": edges,
+            "administrative": administrative,
         },
     )
 

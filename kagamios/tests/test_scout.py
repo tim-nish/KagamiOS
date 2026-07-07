@@ -48,6 +48,33 @@ def test_scout_role_search_succeeds_and_logs_a_retrieval_event(tmp_path):
     assert len(retrievals) == 1
     assert retrievals[0]["role"] == "scout"
     assert retrievals[0]["provider"] == "stub"
+    assert retrievals[0]["administrative"] is False
+
+
+def test_search_corpus_administrative_flag_is_self_declared_at_issuance(tmp_path):
+    """FR-57: a non-exploration lookup (e.g. an orchestrator convenience
+    re-query) is marked at the point of issuance, not inferred later."""
+    run_dir, output_root = _open(tmp_path)
+    provider = _StubProvider([{"canonical_key": "10.1/a", "title": "Paper A", "source": "stub"}])
+
+    search_corpus(run_dir, output_root, provider, "signature methods", role="scout", administrative=True)
+
+    retrievals = [e for e in _events(run_dir) if e["family"] == "retrieval" and e["kind"] == "corpus_search"]
+    assert retrievals[0]["administrative"] is True
+
+
+def test_corpus_expand_administrative_flag_is_self_declared_at_issuance(tmp_path):
+    run_dir, output_root = _open(tmp_path)
+    provider = _StubProvider(
+        results=[],
+        graph={"cited_by": ["10.1/b"], "references": []},
+        metadata_by_key={"10.1/b": {"canonical_key": "10.1/b", "title": "Paper B", "source": "stub"}},
+    )
+
+    corpus_expand(run_dir, output_root, provider, "10.1/a", role="scout", administrative=True)
+
+    expansions = [e for e in _events(run_dir) if e["family"] == "retrieval" and e["kind"] == "corpus_expand"]
+    assert expansions[0]["administrative"] is True
 
 
 def test_non_scout_role_is_refused_and_logs_nothing(tmp_path):
