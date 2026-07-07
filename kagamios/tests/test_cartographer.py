@@ -49,6 +49,36 @@ def test_two_cuts_that_partition_identically_fail_validation():
         validate_field_map_draft(result["cuts"])
 
 
+def test_draft_over_extraction_backed_cards_produces_non_degenerate_method_class_clustering(tmp_path):
+    """FR-54/FR-26: run 1's cards carried no `method_class` at all, so every
+    card fell into the same 'unclassified' bucket and the draft degenerated
+    to identical partitions. Re-run over cards minted through the FR-54
+    extraction path (same chokepoint `search_corpus`/`corpus_expand` use)
+    and confirm `method_class` clustering earns its two-cut name back."""
+    from kagami.corpus.cache import get_or_create_paper_card
+
+    empirical_abstract = (
+        "We conduct extensive experiments on three benchmark datasets. "
+        "Results show a significant accuracy improvement over strong baselines."
+    )
+    theoretical_abstract = (
+        "We prove a tight upper bound on the sample complexity of this class of algorithms. "
+        "Our theorem holds under mild assumptions."
+    )
+
+    card_a, _ = get_or_create_paper_card(
+        tmp_path, "10.1/a", lambda: {"title": "Paper A", "abstract": empirical_abstract, "source": "openalex"}
+    )
+    card_b, _ = get_or_create_paper_card(
+        tmp_path, "10.1/b", lambda: {"title": "Paper B", "abstract": theoretical_abstract, "source": "openalex"}
+    )
+
+    assert card_a["method_class"] != card_b["method_class"]
+
+    result = draft_clusterings([card_a, card_b])
+    validate_field_map_draft(result["cuts"])  # does not raise: genuinely non-degenerate
+
+
 def test_compute_recency_profile_is_non_empty_and_deterministic():
     papers = [{"source": "openalex"}, {"source": "arxiv"}]
     profile = compute_recency_profile(papers)

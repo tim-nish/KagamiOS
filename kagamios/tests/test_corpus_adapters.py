@@ -110,6 +110,48 @@ def test_every_adapter_passes_the_same_contract_test(adapter_cls):
     assert "references" in graph  # FR-51: both keys always present, even when empty
 
 
+def test_openalex_search_reconstructs_abstract_from_the_inverted_index():
+    """FR-54: OpenAlex never returns a plain abstract string —
+    `abstract_inverted_index` maps each word to its position(s); this is
+    zero extra retrieval since the index rides on the same search response
+    `_to_result` already reads title/doi from."""
+    fetch = lambda url: {
+        "results": [
+            {
+                "doi": "10.1/a",
+                "title": "Paper A",
+                "abstract_inverted_index": {"We": [0], "prove": [1], "a": [2], "theorem": [3]},
+            }
+        ]
+    }
+    provider = OpenAlexProvider(fetch=fetch)
+    results = provider.search("signature methods")
+    assert results[0]["abstract"] == "We prove a theorem"
+
+
+def test_openalex_search_with_no_inverted_index_yields_an_empty_abstract():
+    provider = OpenAlexProvider(fetch=_fake_fetch("openalex"))
+    results = provider.search("signature methods")
+    assert results[0]["abstract"] == ""
+
+
+def test_semantic_scholar_passes_through_a_provided_abstract():
+    fetch = lambda url: {"data": [{"paperId": "ss-1", "title": "Paper B", "abstract": "We prove a bound."}]}
+    provider = SemanticScholarProvider(fetch=fetch)
+    results = provider.search("signature methods")
+    assert results[0]["abstract"] == "We prove a bound."
+
+
+@pytest.mark.parametrize("adapter_cls", [ArxivProvider, GitHubProvider])
+def test_arxiv_and_github_carry_no_abstract_field(adapter_cls):
+    """FR-54: arXiv and GitHub have no abstract data as of this writing —
+    `_to_result` must not fabricate one; `get_or_create_paper_card` reads
+    its absence as `content_source: none`."""
+    provider = adapter_cls(fetch=_fake_fetch(adapter_cls.name))
+    results = provider.search("signature methods")
+    assert "abstract" not in results[0]
+
+
 def test_openalex_citation_graph_returns_both_directions():
     provider = OpenAlexProvider(fetch=_fake_fetch("openalex"))
     graph = provider.citation_graph("10.1/a")
