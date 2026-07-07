@@ -6,6 +6,7 @@ from pathlib import Path
 
 from kagami.config import load_config
 from kagami.corpus.adapters import resolve_provider
+from kagami.corpus.cache import CorpusCacheError, read_paper_card
 from kagami.corpus.provider import ProviderError
 from kagami.kernel.cartographer import (
     CartographerError,
@@ -264,6 +265,15 @@ def _cmd_corpus_expand(args: argparse.Namespace) -> dict:
         provider = resolve_provider(config, provider_override=args.provider)
         return corpus_expand(run_dir, output_root, provider, args.canonical_key, args.role)
     except (ProviderError, CorpusAccessError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _cmd_corpus_show(args: argparse.Namespace) -> dict:
+    run_dir = _run_dir(args.run_id)
+    output_root = resolve_output_root()
+    try:
+        return read_paper_card(run_dir, output_root, args.state, args.paper_id)
+    except (ConsumptionError, CorpusCacheError) as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -908,6 +918,12 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_expand_parser.add_argument("--canonical-key", dest="canonical_key", required=True)
     corpus_expand_parser.add_argument("--provider", dest="provider", default=None)
     corpus_expand_parser.set_defaults(func=_cmd_corpus_expand)
+
+    corpus_show_parser = corpus_subparsers.add_parser("show")
+    corpus_show_parser.add_argument("--run-id", dest="run_id", required=True)
+    corpus_show_parser.add_argument("--state", dest="state", required=True)
+    corpus_show_parser.add_argument("--paper-id", dest="paper_id", required=True)
+    corpus_show_parser.set_defaults(func=_cmd_corpus_show)
 
     read_parser = subparsers.add_parser("read")
     read_parser.add_argument("--run-id", dest="run_id", required=True)

@@ -10,10 +10,18 @@ from kagami.corpus.extraction import (
     Extractor,
     extract_card_content,
 )
+from kagami.events import append_event
+from kagami.registry import load_registry
 from kagami.store.atomic import atomic_write
 from kagami.store.locking import acquire_run_lock
+from kagami.store.read import ConsumptionError
 
 PAPER_CARD_SCHEMA_VERSION = 1
+
+# FR-55: the `retrieval` event kind a sanctioned paper-card read appends —
+# the corpus-cache analogue of `read_artifact`'s `summary_read`/
+# `full_text_pull`, distinctly loggable the same way.
+PAPER_CARD_READ_KIND = "paper_card_read"
 
 # FR-52/AD-28: a paper card is a frame-independent fact, cached forever
 # across runs — a frame-dependent valuation may never land on it. This is
@@ -106,3 +114,36 @@ def get_or_create_paper_card(
         }
         atomic_write(path, yaml.safe_dump(card, sort_keys=False))
         return card, False
+
+
+def read_paper_card(
+    run_dir: Path, output_root: Path, state: str, paper_id: str, registry=None
+) -> dict:
+    """FR-55: the sole sanctioned way to read a paper card's content — no
+    role reads a corpus-cache file off disk directly (that would be the
+    off-charter workaround `change-signal-paper-content-2026-07-06.md`'s
+    verified state describes).
+
+    Gated per state via `registry.can_read_paper_card`, an allowlist
+    audited separately from FR-15's artifact-only `consumption_map`
+    because a paper card lives in the AD-18 corpus-cache store, not the
+    versioned artifact store `consumption_map` gates. Every successful
+    read appends its own `retrieval` event — the same logged-read pattern
+    `read_artifact`'s `summary_read`/`full_text_pull` already established.
+    """
+    registry = registry or load_registry()
+    if not registry.can_read_paper_card(state):
+        raise ConsumptionError(
+            f"state '{state}' has no defined brief for reading paper-card content (FR-55)"
+        )
+
+    path = _paper_path(output_root, paper_id)
+    if not path.is_file():
+        raise CorpusCacheError(f"no paper card found for id '{paper_id}'")
+    card = yaml.safe_load(path.read_text())
+
+    append_event(
+        run_dir, "retrieval", {"kind": PAPER_CARD_READ_KIND, "state": state, "paper_id": paper_id}
+    )
+
+    return {"ok": True, "card": card}

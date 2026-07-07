@@ -37,3 +37,11 @@ Resolve the tier/model via `kagami dispatch resolve --operation-class dossier_dr
 ## What you read
 
 The cluster's paper cards and any prior Evolution content for this dossier — not the rest of the dossier's sections (those are `worker`'s domain, per AD-4), and not other clusters' dossiers.
+
+Read each paper card's content through the sanctioned path (FR-55) — never the corpus cache file directly:
+
+```
+uv run --project ${CLAUDE_PLUGIN_ROOT} kagami corpus show --run-id <run-id> --state deepen --paper-id <paper-id>
+```
+
+This is the same logged-read pattern `read_artifact`'s summary/full-text pulls already use: the call appends its own retrieval event, so a dossier grounded in what Scout actually retrieved is provable from the run's event log, not just an assertion.

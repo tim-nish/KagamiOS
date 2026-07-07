@@ -117,11 +117,13 @@ class SchemaRegistry:
         store_schemas: dict,
         state_machine: dict,
         consumption_map: dict | None = None,
+        paper_card_readable_states: tuple = (),
     ):
         self._artifact_schemas = artifact_schemas
         self._store_schemas = store_schemas
         self._state_machine = state_machine
         self._consumption_map = consumption_map or {}
+        self._paper_card_readable_states = tuple(paper_card_readable_states)
 
     def artifact_types(self) -> tuple:
         return tuple(sorted(self._artifact_schemas))
@@ -180,6 +182,25 @@ class SchemaRegistry:
     def can_read(self, state: str, type_slug: str) -> bool:
         return type_slug in self.consumption_map(state)
 
+    def paper_card_readable_states(self) -> tuple:
+        """FR-55: which states may read a paper card's content — audited
+        *separately* from `consumption_map`'s `states:` map because a
+        paper card lives in the AD-18 corpus-cache store, not the
+        versioned artifact store `consumption_map`/`can_read` gate
+        (`load_registry`'s own validation only recognizes artifact
+        types). Story 10.2's audit: Deepen (Historian) needs it; Synthesize
+        and Locate do not — `agents/worker.md`'s existing charter already
+        scopes those two states to read exactly one layer up (accepted
+        Cluster Dossiers / the Landscape Synthesis), never past the layer
+        immediately below the state being drafted for. Extending this
+        list is a data change, not a code change, if that audit's answer
+        changes.
+        """
+        return self._paper_card_readable_states
+
+    def can_read_paper_card(self, state: str) -> bool:
+        return state in self.paper_card_readable_states()
+
     def validate(self, type_slug: str, artifact_fields: dict) -> None:
         schema = self.get_artifact_schema(type_slug)
         unknown = set(artifact_fields) - set(schema.fields)
@@ -234,4 +255,17 @@ def load_registry(schemas_root: Path | None = None) -> SchemaRegistry:
                 f"{sorted(unknown_types)}"
             )
 
-    return SchemaRegistry(artifact_schemas, store_schemas, state_machine, consumption_map)
+    # FR-55: a second, separately-audited allowlist — a paper card is a
+    # corpus-cache entry, not an artifact type, so it cannot live in
+    # `consumption_map`'s `states:` map above without that map's own
+    # unknown-artifact-type validation rejecting it.
+    paper_card_readable_states = tuple(consumption_map_raw.get("paper_card_readable_states") or [])
+    unknown_paper_card_consumers = set(paper_card_readable_states) - valid_consumers
+    if unknown_paper_card_consumers:
+        raise RegistryError(
+            f"paper_card_readable_states has unknown consumer(s): {sorted(unknown_paper_card_consumers)}"
+        )
+
+    return SchemaRegistry(
+        artifact_schemas, store_schemas, state_machine, consumption_map, paper_card_readable_states
+    )

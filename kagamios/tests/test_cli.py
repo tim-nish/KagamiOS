@@ -947,6 +947,74 @@ def test_corpus_expand_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsy
     assert result["ok"] is False
 
 
+def test_corpus_show_cli_reads_a_paper_card_and_logs_a_retrieval_event(tmp_path, monkeypatch, capsys):
+    """FR-55: Historian (or any role whose job needs it) reads paper-card
+    content through the sanctioned `corpus show` entrypoint, which
+    appends its own retrieval event — the same logged-read pattern
+    `read_artifact`'s `summary_read`/`full_text_pull` already established."""
+    from kagami.corpus.cache import get_or_create_paper_card
+    from kagami.paths import resolve_output_root
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-show-test"])
+    capsys.readouterr()
+
+    output_root = resolve_output_root()
+    card, _ = get_or_create_paper_card(output_root, "10.1/a", lambda: {"title": "Paper A", "source": "openalex"})
+
+    exit_code = main(
+        ["corpus", "show", "--run-id", "run-corpus-show-test", "--state", "deepen", "--paper-id", card["id"]]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert result["card"]["id"] == card["id"]
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-corpus-show-test"
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    retrievals = [e for e in events if e["family"] == "retrieval" and e["kind"] == "paper_card_read"]
+    assert len(retrievals) == 1
+    assert retrievals[0]["paper_id"] == card["id"]
+
+
+def test_corpus_show_cli_state_argument_is_case_normalized(tmp_path, monkeypatch, capsys):
+    from kagami.corpus.cache import get_or_create_paper_card
+    from kagami.paths import resolve_output_root
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-show-case-test"])
+    capsys.readouterr()
+
+    output_root = resolve_output_root()
+    card, _ = get_or_create_paper_card(output_root, "10.1/a", lambda: {"title": "Paper A"})
+
+    exit_code = main(
+        ["corpus", "show", "--run-id", "run-corpus-show-case-test", "--state", " Deepen ", "--paper-id", card["id"]]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+
+def test_corpus_show_cli_is_refused_from_a_state_without_a_defined_brief(tmp_path, monkeypatch, capsys):
+    from kagami.corpus.cache import get_or_create_paper_card
+    from kagami.paths import resolve_output_root
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-show-refuse-test"])
+    capsys.readouterr()
+
+    output_root = resolve_output_root()
+    card, _ = get_or_create_paper_card(output_root, "10.1/a", lambda: {"title": "Paper A"})
+
+    exit_code = main(
+        ["corpus", "show", "--run-id", "run-corpus-show-refuse-test", "--state", "synthesize", "--paper-id", card["id"]]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+
 def test_appraisal_record_cli_writes_an_entry(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-appraisal-test"])
