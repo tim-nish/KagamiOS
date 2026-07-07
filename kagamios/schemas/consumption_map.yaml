@@ -12,3 +12,18 @@ states:
   locate: [landscape-synthesis, cluster-dossier, field-map]
   propose: [gap-register, landscape-synthesis, researcher-profile, cluster-dossier, confidence-checklist]
   decide: [candidate-direction, confidence-checklist, researcher-profile]
+# FR-55/Story 10.2: which states may read a paper card's *content* (via
+# `kagami corpus show`, not the `states:` map above — a paper card is an
+# AD-18 corpus-cache entry, not a versioned artifact type, so it can't
+# join that map without failing its unknown-artifact-type validation).
+# Audited at story-design time, per FR-55's own text:
+#   - deepen: yes — Historian's Evolution section rests on what Scout
+#     actually retrieved (three independent FR-15 refusals in run 1).
+#   - synthesize, locate: no — `agents/worker.md`'s existing charter
+#     already scopes both states to read exactly one layer up (accepted
+#     Cluster Dossiers / the Landscape Synthesis), never past the layer
+#     immediately below the state being drafted for; reaching down to
+#     individual paper cards would violate that same boundary. Revisit
+#     if a future story's evidence says otherwise — this is a data
+#     change, not a code change.
+paper_card_readable_states: [deepen]

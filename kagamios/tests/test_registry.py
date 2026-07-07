@@ -170,6 +170,26 @@ def test_consumption_map_rejects_unknown_artifact_type(tmp_path):
         load_registry(schemas_root)
 
 
+def test_can_read_paper_card_reflects_story_10_2s_audit(registry):
+    """FR-55: Deepen (Historian) needs paper-card content; Synthesize and
+    Locate were audited and do not — see `consumption_map.yaml`'s
+    `paper_card_readable_states` comment for the reasoning."""
+    assert registry.can_read_paper_card("deepen") is True
+    assert registry.can_read_paper_card("synthesize") is False
+    assert registry.can_read_paper_card("locate") is False
+    assert registry.can_read_paper_card("frame") is False
+
+
+def test_paper_card_readable_states_rejects_unknown_consumer(tmp_path):
+    schemas_root = _minimal_schemas_root(tmp_path)
+    (schemas_root / "consumption_map.yaml").write_text(
+        "schema_version: 1\nstates:\n  frame: [intuition-note]\n"
+        "paper_card_readable_states: [not-a-real-state]\n"
+    )
+    with pytest.raises(RegistryError, match="paper_card_readable_states has unknown consumer"):
+        load_registry(schemas_root)
+
+
 def _minimal_schemas_root(tmp_path):
     import shutil
 

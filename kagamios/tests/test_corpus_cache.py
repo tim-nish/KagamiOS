@@ -1,7 +1,11 @@
+import json
+
 import pytest
 
-from kagami.corpus.cache import CorpusCacheError, get_or_create_paper_card, mint_paper_id
+from kagami.corpus.cache import CorpusCacheError, get_or_create_paper_card, mint_paper_id, read_paper_card
 from kagami.corpus.extraction import CONTENT_SOURCE_ABSTRACT, CONTENT_SOURCE_NONE
+from kagami.store.read import ConsumptionError
+from kagami.store.run import open_run
 
 
 def test_mint_paper_id_is_deterministic_and_content_derived():
@@ -148,3 +152,50 @@ def test_forbidden_card_fields_are_still_refused_alongside_an_abstract(tmp_path,
         get_or_create_paper_card(
             tmp_path, "10.1/abc", lambda: {"title": "A", "abstract": "some abstract", field: "x"}
         )
+
+
+def _open(tmp_path, run_id="run-read-card"):
+    output_root = tmp_path / "_out"
+    open_run(run_id=run_id, output_root=output_root)
+    return output_root / "runs" / run_id, output_root
+
+
+def _events(run_dir):
+    return [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+
+
+def test_read_paper_card_succeeds_from_an_allowed_state_and_logs_a_retrieval_event(tmp_path):
+    """FR-55: Deepen (Historian) has a legitimate, logged way to read a
+    paper card's content — the same pattern `read_artifact`'s
+    `summary_read`/`full_text_pull` already established."""
+    run_dir, output_root = _open(tmp_path)
+    minted, _ = get_or_create_paper_card(output_root, "10.1/abc", lambda: {"title": "A", "source": "openalex"})
+
+    result = read_paper_card(run_dir, output_root, "deepen", minted["id"])
+
+    assert result["ok"] is True
+    assert result["card"]["id"] == minted["id"]
+
+    retrievals = [e for e in _events(run_dir) if e["family"] == "retrieval" and e["kind"] == "paper_card_read"]
+    assert len(retrievals) == 1
+    assert retrievals[0]["state"] == "deepen"
+    assert retrievals[0]["paper_id"] == minted["id"]
+
+
+def test_read_paper_card_is_refused_from_a_state_without_a_defined_brief(tmp_path):
+    """FR-55/Story 10.2's audit: Synthesize and Locate do not read
+    paper-card content directly — extending consumption_map.yaml is a
+    data change, not a code change, if that audit's answer changes."""
+    run_dir, output_root = _open(tmp_path)
+    minted, _ = get_or_create_paper_card(output_root, "10.1/abc", lambda: {"title": "A"})
+
+    with pytest.raises(ConsumptionError):
+        read_paper_card(run_dir, output_root, "synthesize", minted["id"])
+
+    assert not any(e["family"] == "retrieval" for e in _events(run_dir))
+
+
+def test_read_paper_card_refuses_an_unknown_paper_id(tmp_path):
+    run_dir, output_root = _open(tmp_path)
+    with pytest.raises(CorpusCacheError):
+        read_paper_card(run_dir, output_root, "deepen", "ppr-does-not-exist")
