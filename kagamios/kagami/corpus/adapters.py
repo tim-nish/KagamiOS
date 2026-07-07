@@ -88,7 +88,11 @@ class OpenAlexProvider(_BackoffMixin, LiteratureProvider):
         return self._to_result(self._fetch_with_backoff(f"https://api.openalex.org/works/{canonical_key}"))
 
     def citation_graph(self, canonical_key: str) -> dict:
-        citing = self._fetch_with_backoff(f"https://api.openalex.org/works/{canonical_key}/citations")
+        # FR-51/docs/dogfooding-review.md finding 1: `works/{id}/citations` is not a
+        # real OpenAlex sub-resource (404 in the field). Incoming citations are the
+        # list endpoint filtered by `cites`; outgoing references are the
+        # `referenced_works` array already present on the work object.
+        citing = self._fetch_with_backoff(f"https://api.openalex.org/works?filter=cites:{canonical_key}")
         work = self._fetch_with_backoff(f"https://api.openalex.org/works/{canonical_key}")
         return {
             "canonical_key": canonical_key,
@@ -134,6 +138,10 @@ class SemanticScholarProvider(_BackoffMixin, LiteratureProvider):
         )
 
     def citation_graph(self, canonical_key: str) -> dict:
+        # FR-51: the endpoints are correct, but each `data` item nests the actual
+        # paper under `citingPaper`/`citedPaper` — the flat `paperId` this used to
+        # read never existed on the real response, so every neighbor silently
+        # resolved to `None`.
         citing = self._fetch_with_backoff(
             f"https://api.semanticscholar.org/graph/v1/paper/{canonical_key}/citations"
         )
@@ -142,8 +150,8 @@ class SemanticScholarProvider(_BackoffMixin, LiteratureProvider):
         )
         return {
             "canonical_key": canonical_key,
-            "cited_by": [c.get("paperId") for c in citing.get("data", [])],
-            "references": [c.get("paperId") for c in referenced.get("data", [])],
+            "cited_by": [c.get("citingPaper", {}).get("paperId") for c in citing.get("data", [])],
+            "references": [c.get("citedPaper", {}).get("paperId") for c in referenced.get("data", [])],
         }
 
     def _to_result(self, raw: dict) -> dict:
