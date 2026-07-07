@@ -50,6 +50,66 @@ def test_run_validate_profile_reports_ok_with_no_artifacts(tmp_path, monkeypatch
     assert result == {"ok": True, "violations": []}
 
 
+def test_run_fork_cli_seeds_a_new_run_at_the_named_boundary(tmp_path, monkeypatch, capsys):
+    from kagami.kernel.state_machine import enter_state
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-fork-parent"])
+    capsys.readouterr()
+
+    parent_dir = tmp_path / "_kagami-output" / "runs" / "run-fork-parent"
+    enter_state(parent_dir, "frame")
+    create_artifact(
+        parent_dir, "researcher-profile",
+        {"depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": ""},
+        sections={"notes": "background"},
+    )
+
+    exit_code = main(
+        ["run", "fork", "--run-id", "run-fork-parent", "--from-state", "frame", "--new-run-id", "run-fork-child"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert result["run_id"] == "run-fork-child"
+    assert result["parent_run_id"] == "run-fork-parent"
+
+    child_dir = tmp_path / "_kagami-output" / "runs" / "run-fork-child"
+    assert (child_dir / "artifacts" / "researcher-profile").is_dir()
+
+
+def test_run_fork_cli_refuses_a_boundary_never_reached(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-fork-refuse"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["run", "fork", "--run-id", "run-fork-refuse", "--from-state", "synthesize"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+
+
+def test_run_fork_cli_from_state_argument_is_case_normalized(tmp_path, monkeypatch, capsys):
+    from kagami.kernel.state_machine import enter_state
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-fork-case-test"])
+    capsys.readouterr()
+
+    parent_dir = tmp_path / "_kagami-output" / "runs" / "run-fork-case-test"
+    enter_state(parent_dir, "frame")
+
+    exit_code = main(
+        ["run", "fork", "--run-id", "run-fork-case-test", "--from-state", " Frame ", "--new-run-id", "run-fork-case-child"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+
 def test_scan_subcommand_reports_no_change_then_a_new_version(tmp_path, monkeypatch, capsys):
     from kagami.store.artifact import create_artifact
 

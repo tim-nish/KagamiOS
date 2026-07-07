@@ -81,7 +81,7 @@ from kagami.store import ledger
 from kagami.store.artifact import ArtifactError, accept_artifact, count_provisional, review_artifact, scan
 from kagami.store.ledger import LedgerError
 from kagami.store.read import ConsumptionError, read_artifact
-from kagami.store.run import open_run
+from kagami.store.run import RunForkError, fork_run, open_run
 
 
 def _run_dir(run_id: str):
@@ -151,6 +151,13 @@ def _cmd_run_open(args: argparse.Namespace) -> dict:
 def _cmd_run_validate_profile(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     return validate_minimal_profile(run_dir)
+
+
+def _cmd_run_fork(args: argparse.Namespace) -> dict:
+    try:
+        return fork_run(args.run_id, args.state, run_id=args.new_run_id)
+    except (RunForkError, SchemaVersionError) as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def _cmd_scan(args: argparse.Namespace) -> dict:
@@ -614,6 +621,15 @@ def build_parser() -> argparse.ArgumentParser:
     validate_profile_parser = run_subparsers.add_parser("validate-profile")
     validate_profile_parser.add_argument("--run-id", dest="run_id", required=True)
     validate_profile_parser.set_defaults(func=_cmd_run_validate_profile)
+
+    fork_parser = run_subparsers.add_parser("fork")
+    fork_parser.add_argument("--run-id", dest="run_id", required=True, help="the parent run id")
+    fork_parser.add_argument("--from-state", dest="state", required=True)
+    fork_parser.add_argument(
+        "--new-run-id", dest="new_run_id", default=None,
+        help="id for the forked run; auto-minted if omitted",
+    )
+    fork_parser.set_defaults(func=_cmd_run_fork)
 
     scan_parser = subparsers.add_parser("scan")
     scan_parser.add_argument("--run-id", dest="run_id", required=True)
