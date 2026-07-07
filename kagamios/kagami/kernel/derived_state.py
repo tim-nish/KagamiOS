@@ -55,8 +55,9 @@ def _has_accepted_dossier_for_cluster(run_dir: Path, field_map_id: str) -> bool:
         current_path = meta_path.parent / "current.md"
         frontmatter, _ = parse_document(current_path.read_text())
         if any(pin.startswith(pin_prefix) for pin in frontmatter.get("depends_on") or []):
-            # FR-28: acceptance alone isn't the Deepen exit criterion — every
-            # representative paper must also carry a human_read mark.
+            # FR-28/FR-59: acceptance alone isn't the Deepen exit criterion —
+            # every representative paper must also carry a human-attributed
+            # rating/confidence confirmation.
             if validate_deepen_exit(run_dir, meta["id"])["ok"]:
                 return True
     return False
@@ -71,7 +72,7 @@ def compute_cluster_state(run_dir: Path, field_map_id: str) -> str:
         return MAP_STATE  # Map's exit criterion: the card is human-edited or confirmed
 
     if not _has_accepted_dossier_for_cluster(run_dir, field_map_id):
-        return DEEPEN_STATE  # Deepen's exit criterion: dossier reviewed + representative human_read
+        return DEEPEN_STATE  # Deepen's exit criterion: dossier reviewed + representative confirmed
 
     return PAST_DEEPEN_STATE  # cluster has cleared its own per-cluster work
 

@@ -366,7 +366,8 @@ def _cmd_dossier_mark_read(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
     try:
         return mark_representative_paper_read(
-            run_dir, args.art_id, args.paper_id, args.reaction, args.actor
+            run_dir, args.art_id, args.paper_id, args.rating, args.confidence, args.actor,
+            note=args.note,
         )
     except DossierError as exc:
         return {"ok": False, "error": str(exc)}
@@ -782,8 +783,10 @@ def build_parser() -> argparse.ArgumentParser:
     dossier_mark_read_parser.add_argument("--run-id", dest="run_id", required=True)
     dossier_mark_read_parser.add_argument("--art-id", dest="art_id", required=True)
     dossier_mark_read_parser.add_argument("--paper-id", dest="paper_id", required=True)
-    dossier_mark_read_parser.add_argument("--reaction", dest="reaction", required=True)
+    dossier_mark_read_parser.add_argument("--rating", dest="rating", required=True)
+    dossier_mark_read_parser.add_argument("--confidence", dest="confidence", required=True)
     dossier_mark_read_parser.add_argument("--actor", dest="actor", required=True)
+    dossier_mark_read_parser.add_argument("--note", dest="note", default="")
     dossier_mark_read_parser.set_defaults(func=_cmd_dossier_mark_read)
 
     dossier_validate_parser = dossier_subparsers.add_parser("validate-deepen-exit")

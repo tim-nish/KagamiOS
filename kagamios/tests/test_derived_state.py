@@ -67,9 +67,10 @@ def test_cluster_with_an_accepted_dossier_is_derived_past_deepen(tmp_path):
     assert compute_cluster_state(run_dir, fm["id"]) == "synthesize"
 
 
-def test_cluster_with_an_accepted_dossier_missing_human_read_stays_in_deepen(tmp_path):
-    """FR-28: acceptance alone isn't the Deepen exit criterion — an unread
-    representative paper keeps the cluster's derived state at 'deepen'."""
+def test_cluster_with_an_accepted_dossier_missing_a_confirmation_stays_in_deepen(tmp_path):
+    """FR-28/FR-59: acceptance alone isn't the Deepen exit criterion — an
+    unconfirmed representative paper keeps the cluster's derived state at
+    'deepen'."""
     from kagami.store.artifact import accept_artifact, pin_dependency
 
     run_dir = _open(tmp_path)
@@ -81,7 +82,9 @@ def test_cluster_with_an_accepted_dossier_missing_human_read_stays_in_deepen(tmp
         "cluster-dossier",
         _base_fields(
             depends_on=[pin_dependency(fm["id"], 1)],
-            representative_papers=[{"paper_id": "ppr-1", "human_read": False, "reaction": ""}],
+            representative_papers=[
+                {"paper_id": "ppr-1", "rating": None, "confidence": None, "note": "", "actor": None}
+            ],
         ),
         sections={"evolution": "founding problem etc"},
     )
