@@ -498,7 +498,15 @@ def test_dossier_mark_read_and_validate_deepen_exit_round_trip_through_cli(tmp_p
 
     exit_code = main(
         ["dossier", "mark-read", "--run-id", "run-dossier-test", "--art-id", dossier["id"],
-         "--paper-id", "ppr-1", "--reaction", "foundational"]
+         "--paper-id", "ppr-1", "--reaction", "foundational", "--actor", "historian"]
+    )
+    refused_result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert refused_result["ok"] is False
+
+    exit_code = main(
+        ["dossier", "mark-read", "--run-id", "run-dossier-test", "--art-id", dossier["id"],
+         "--paper-id", "ppr-1", "--reaction", "foundational", "--actor", "human"]
     )
     mark_result = json.loads(capsys.readouterr().out)
     assert exit_code == 0
@@ -1066,7 +1074,8 @@ def test_appraisal_record_cli_writes_an_entry(tmp_path, monkeypatch, capsys):
 
     exit_code = main(
         ["appraisal", "record", "--run-id", "run-appraisal-test", "--paper-id", "ppr-abc",
-         "--judgment", "relevant", "--frame-version", "frame-v1", "--reason", "anchors the cluster"]
+         "--judgment", "relevant", "--frame-version", "frame-v1", "--reason", "anchors the cluster",
+         "--role", "worker"]
     )
     result = json.loads(capsys.readouterr().out)
     assert exit_code == 0

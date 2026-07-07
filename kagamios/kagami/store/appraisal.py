@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 
 from kagami.events import append_event
+from kagami.registry import ROLES
 from kagami.store.atomic import atomic_write
 from kagami.store.ids import mint_id
 from kagami.store.locking import acquire_run_lock
@@ -22,7 +23,7 @@ def _entry_path(run_dir: Path, appraisal_id: str) -> Path:
 
 
 def record_appraisal(
-    run_dir: Path, paper_id: str, judgment: str, frame_version: str, reason: str
+    run_dir: Path, paper_id: str, judgment: str, frame_version: str, reason: str, role: str
 ) -> dict:
     """FR-52/AD-28: a frame-dependent judgment about a paper, recorded
     structurally separate from that paper's frame-independent card (AD-18,
@@ -36,10 +37,20 @@ def record_appraisal(
     Run-scoped: appraisals live under `runs/<run-id>/appraisals/`, not the
     cross-run corpus cache (AD-13) — a judgment about a paper belongs to the
     run and frame that produced it, never to the paper itself.
+
+    FR-58/AD-30: `role` is mandatory and persisted on the entry — a
+    judgment record's meaning depends on who asserted it, so no caller may
+    record one without declaring who they are; validated against the same
+    schema-registry-enumerated `ROLES` `report_llm_call` already checks
+    (AD-4/AD-26), no default that would silently satisfy the requirement.
     """
     if not paper_id or not judgment or not frame_version:
         raise AppraisalError(
             "paper_id, judgment, and frame_version are all required to record an appraisal (FR-52)"
+        )
+    if not role or role not in ROLES:
+        raise AppraisalError(
+            f"'{role}' is not a recognized role; must be one of {ROLES} (FR-58)"
         )
 
     appraisal_id = mint_id("apr-")
@@ -49,6 +60,7 @@ def record_appraisal(
         "judgment": judgment,
         "frame_version": frame_version,
         "reason": reason or "",
+        "role": role,
         "recorded_at": utc_now_iso(),
     }
 
