@@ -34,13 +34,17 @@ FIXTURES = {
     "openalex": {
         "search": {"results": [{"doi": "10.1/a", "title": "Paper A"}]},
         "metadata": {"doi": "10.1/a", "title": "Paper A", "referenced_works": ["https://openalex.org/W3"]},
+        # Recorded shape of `/works?filter=cites:{id}` — the real list endpoint,
+        # not the non-existent `/works/{id}/citations` sub-resource.
         "citations": {"results": [{"id": "https://openalex.org/W2"}]},
     },
     "semantic-scholar": {
         "search": {"data": [{"paperId": "ss-1", "title": "Paper B"}]},
         "metadata": {"paperId": "ss-1", "title": "Paper B"},
-        "citations": {"data": [{"paperId": "ss-2"}]},
-        "references": {"data": [{"paperId": "ss-3"}]},
+        # Recorded shape of the real /citations and /references endpoints: each
+        # `data` item nests the neighbor paper under citingPaper/citedPaper.
+        "citations": {"data": [{"citingPaper": {"paperId": "ss-2"}}]},
+        "references": {"data": [{"citedPaper": {"paperId": "ss-3"}}]},
     },
     "arxiv": {
         "search": {"entries": [{"arxiv_id": "2101.00001", "title": "Paper C"}]},
@@ -67,7 +71,9 @@ def _fake_fetch(name):
         if "references" in url:
             calls["references"] += 1
             return FIXTURES[name]["references"]
-        if "citations" in url:
+        # OpenAlex's incoming-citations query is `/works?filter=cites:{id}`, not
+        # a `/citations` sub-resource — dispatch it to the same fixture bucket.
+        if "citations" in url or "filter=cites:" in url:
             calls["citations"] += 1
             return FIXTURES[name]["citations"]
         calls["metadata"] += 1
@@ -116,6 +122,77 @@ def test_semantic_scholar_citation_graph_returns_both_directions():
     graph = provider.citation_graph("ss-1")
     assert graph["cited_by"] == ["ss-2"]
     assert graph["references"] == ["ss-3"]
+
+
+def _recording_fetch(name):
+    """Recorded-fixture contract helper: dispatches on the *real*, documented
+    URL shape for each provider (not a loose substring match), so a call to a
+    non-existent or renamed endpoint fails the test instead of silently
+    falling through to an unrelated fixture."""
+    requested = []
+
+    def fetch(url: str) -> dict:
+        requested.append(url)
+        if name == "openalex":
+            if url.startswith("https://api.openalex.org/works?filter=cites:"):
+                return FIXTURES["openalex"]["citations"]
+            if url.startswith("https://api.openalex.org/works/"):
+                return FIXTURES["openalex"]["metadata"]
+        if name == "semantic-scholar":
+            if url == "https://api.semanticscholar.org/graph/v1/paper/ss-1/citations":
+                return FIXTURES["semantic-scholar"]["citations"]
+            if url == "https://api.semanticscholar.org/graph/v1/paper/ss-1/references":
+                return FIXTURES["semantic-scholar"]["references"]
+        raise AssertionError(f"unexpected URL for provider '{name}': {url}")
+
+    fetch.requested = requested
+    return fetch
+
+
+def test_openalex_citation_graph_queries_the_real_cites_filter_endpoint():
+    """Recorded-fixture contract test (docs/dogfooding-review.md finding 1):
+    OpenAlex has no `/works/{id}/citations` sub-resource — incoming citations
+    must come from the `/works` list endpoint filtered by `cites`."""
+    fetch = _recording_fetch("openalex")
+    provider = OpenAlexProvider(fetch=fetch)
+
+    graph = provider.citation_graph("10.1/a")
+
+    assert "https://api.openalex.org/works?filter=cites:10.1/a" in fetch.requested
+    assert not any(url.endswith("/10.1/a/citations") for url in fetch.requested)
+    assert graph["cited_by"] == ["https://openalex.org/W2"]
+    assert graph["references"] == ["https://openalex.org/W3"]
+
+
+def test_semantic_scholar_citation_graph_unwraps_the_nested_paper_objects():
+    """Recorded-fixture contract test: the real /citations and /references
+    responses nest each neighbor under citingPaper/citedPaper — a flat
+    `paperId` silently resolves to None against the live API."""
+    fetch = _recording_fetch("semantic-scholar")
+    provider = SemanticScholarProvider(fetch=fetch)
+
+    graph = provider.citation_graph("ss-1")
+
+    assert "https://api.semanticscholar.org/graph/v1/paper/ss-1/citations" in fetch.requested
+    assert "https://api.semanticscholar.org/graph/v1/paper/ss-1/references" in fetch.requested
+    assert graph["cited_by"] == ["ss-2"]
+    assert graph["references"] == ["ss-3"]
+    assert None not in graph["cited_by"]
+    assert None not in graph["references"]
+
+
+@pytest.mark.parametrize("adapter_cls", [ArxivProvider, GitHubProvider])
+def test_arxiv_and_github_citation_graph_makes_no_network_call(adapter_cls):
+    """Recorded-fixture contract test: arXiv and GitHub have no citation-graph
+    API in either direction (FR-51) — `citation_graph` must return the empty
+    edges as a hardcoded, honest bias, never attempt a request that would 404."""
+
+    def failing_fetch(url: str) -> dict:
+        raise AssertionError(f"{adapter_cls.name}.citation_graph should never call fetch, got {url}")
+
+    provider = adapter_cls(fetch=failing_fetch)
+    graph = provider.citation_graph("some-key")
+    assert graph == {"canonical_key": "some-key", "cited_by": [], "references": []}
 
 
 @pytest.mark.parametrize("adapter_cls", [ArxivProvider, GitHubProvider])
