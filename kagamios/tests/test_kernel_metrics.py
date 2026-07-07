@@ -316,52 +316,132 @@ def test_rediscovery_rate_is_none_with_no_retrieval_events(tmp_path):
     assert result["rediscovery_rate"] is None
 
 
-def test_rediscovery_rate_computes_fraction_of_reused_across_corpus_search_events(tmp_path):
+def test_rediscovery_rate_computes_fraction_of_within_run_repeats_across_corpus_search_events(tmp_path):
+    """FR-57: rediscovery now means 'seen again within this run's own
+    event log' — each event's `reused` flag is set to False throughout to
+    prove the computation doesn't read it at all, only the repeated
+    paper_id (`ppr-1`) across the two events."""
     append_event(
         tmp_path, "retrieval",
         {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
-         "paper_ids": ["ppr-1", "ppr-2"], "reused": [False, True]},
+         "paper_ids": ["ppr-1", "ppr-2"], "reused": [False, False]},
     )
     append_event(
         tmp_path, "retrieval",
         {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q2",
-         "paper_ids": ["ppr-3"], "reused": [True]},
+         "paper_ids": ["ppr-1", "ppr-3"], "reused": [False, False]},
     )
 
     result = compute_rediscovery_rate(tmp_path)
-    assert result["sample_size"] == 3
-    assert result["rediscovery_rate"] == pytest.approx(2 / 3)
+    assert result["sample_size"] == 4
+    assert result["rediscovery_rate"] == pytest.approx(1 / 4)  # only the second ppr-1 is a repeat
 
 
 def test_rediscovery_rate_includes_corpus_expand_edges(tmp_path):
+    """Same within-run-repeat semantics for `corpus_expand`: `ppr-2` is the
+    edge target of both events, so its second appearance counts."""
     append_event(
         tmp_path, "retrieval",
         {
             "kind": "corpus_expand", "role": "scout", "provider": "stub",
             "origin_paper_id": "ppr-1", "canonical_key": "10.1/a",
             "edges": [
-                {"from": "ppr-1", "to": "ppr-2", "direction": "cited_by", "reused": True},
+                {"from": "ppr-1", "to": "ppr-2", "direction": "cited_by", "reused": False},
                 {"from": "ppr-1", "to": "ppr-3", "direction": "references", "reused": False},
             ],
         },
     )
+    append_event(
+        tmp_path, "retrieval",
+        {
+            "kind": "corpus_expand", "role": "scout", "provider": "stub",
+            "origin_paper_id": "ppr-4", "canonical_key": "10.1/d",
+            "edges": [{"from": "ppr-4", "to": "ppr-2", "direction": "cited_by", "reused": False}],
+        },
+    )
 
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 3
+    assert result["rediscovery_rate"] == pytest.approx(1 / 3)
+
+
+def test_rediscovery_rate_treats_a_cross_run_cache_hit_as_not_yet_seen_by_this_run(tmp_path):
+    """FR-57: a paper minted by a *previous* run's cache carries
+    `reused: true` on its very first sighting in *this* run's own log —
+    that's a cross-run cache hit, not within-run rediscovery, and must not
+    inflate the rate. A genuine second sighting *within this run* is what
+    should count."""
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
+         "paper_ids": ["ppr-1"], "reused": [True]},
+    )
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 1
+    assert result["rediscovery_rate"] == 0.0
+
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q2",
+         "paper_ids": ["ppr-1"], "reused": [True]},
+    )
     result = compute_rediscovery_rate(tmp_path)
     assert result["sample_size"] == 2
     assert result["rediscovery_rate"] == pytest.approx(0.5)
 
 
+def test_rediscovery_rate_excludes_administrative_flagged_corpus_search_events(tmp_path):
+    """FR-57: an administrative (non-organic) lookup neither contributes a
+    lookup nor pre-seeds the within-run seen set — a later organic lookup
+    of the same paper is still that paper's first sighting for this run."""
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
+         "paper_ids": ["ppr-1"], "reused": [False], "administrative": True},
+    )
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 0
+    assert result["rediscovery_rate"] is None
+
+    append_event(
+        tmp_path, "retrieval",
+        {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q2",
+         "paper_ids": ["ppr-1"], "reused": [False]},
+    )
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 1
+    assert result["rediscovery_rate"] == 0.0
+
+
+def test_rediscovery_rate_excludes_administrative_flagged_corpus_expand_events(tmp_path):
+    append_event(
+        tmp_path, "retrieval",
+        {
+            "kind": "corpus_expand", "role": "scout", "provider": "stub",
+            "origin_paper_id": "ppr-1", "canonical_key": "10.1/a",
+            "edges": [{"from": "ppr-1", "to": "ppr-2", "direction": "cited_by", "reused": False}],
+            "administrative": True,
+        },
+    )
+    result = compute_rediscovery_rate(tmp_path)
+    assert result["sample_size"] == 0
+    assert result["rediscovery_rate"] is None
+
+
 def test_rediscovery_rate_respects_the_window_using_only_the_most_recent_lookups(tmp_path):
-    for reused in (False, False, False, True, True):
+    # Same paper_id five times in a row within this run: only the first
+    # lookup is a genuine first sighting, the other four are within-run
+    # repeats — the `reused` flags are irrelevant to the new computation.
+    for _ in range(5):
         append_event(
             tmp_path, "retrieval",
             {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
-             "paper_ids": ["ppr-x"], "reused": [reused]},
+             "paper_ids": ["ppr-x"], "reused": [False]},
         )
 
     result = compute_rediscovery_rate(tmp_path, window=2)
     assert result["sample_size"] == 2
-    assert result["rediscovery_rate"] == 1.0  # only the last two (both reused) are in-window
+    assert result["rediscovery_rate"] == 1.0  # only the last two (both within-run repeats) are in-window
 
 
 def test_rediscovery_rate_is_deterministic_across_repeated_calls(tmp_path):
@@ -377,8 +457,8 @@ def test_compute_derived_metrics_carries_the_rediscovery_rate(tmp_path):
     append_event(
         tmp_path, "retrieval",
         {"kind": "corpus_search", "role": "scout", "provider": "stub", "query": "q",
-         "paper_ids": ["ppr-1"], "reused": [True]},
+         "paper_ids": ["ppr-1", "ppr-1"], "reused": [False, False]},
     )
     metrics = compute_derived_metrics(tmp_path)
-    assert metrics["rediscovery_rate"]["sample_size"] == 1
-    assert metrics["rediscovery_rate"]["rediscovery_rate"] == 1.0
+    assert metrics["rediscovery_rate"]["sample_size"] == 2
+    assert metrics["rediscovery_rate"]["rediscovery_rate"] == 0.5

@@ -851,6 +851,50 @@ def test_corpus_search_cli_defaults_limit_to_eight_and_forwards_an_explicit_over
     assert captured_limits == [DEFAULT_SEARCH_LIMIT, 3]
 
 
+def test_corpus_search_and_expand_cli_administrative_flag_lands_on_the_retrieval_event(
+    tmp_path, monkeypatch, capsys
+):
+    """FR-57: `--administrative` is opt-in (defaults to organic/False) and
+    is self-declared by the caller at the point of issuance."""
+    import kagami.cli as cli_module
+    from kagami.corpus.provider import LiteratureProvider
+
+    class _StubProvider(LiteratureProvider):
+        name = "stub"
+
+        def search(self, query, limit=20):
+            return [{"canonical_key": "10.1/a", "title": "Paper A", "source": "stub"}]
+
+        def paper_metadata(self, canonical_key):
+            return {"canonical_key": canonical_key, "title": "Neighbor", "source": "stub"}
+
+        def citation_graph(self, canonical_key):
+            return {"canonical_key": canonical_key, "cited_by": [], "references": []}
+
+    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None, provider_override=None: _StubProvider())
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-corpus-admin-test"])
+    capsys.readouterr()
+
+    main(["corpus", "search", "--run-id", "run-corpus-admin-test", "--role", "scout", "--query", "x"])
+    capsys.readouterr()
+    main(
+        ["corpus", "search", "--run-id", "run-corpus-admin-test", "--role", "scout", "--query", "y",
+         "--administrative"]
+    )
+    capsys.readouterr()
+    main(
+        ["corpus", "expand", "--run-id", "run-corpus-admin-test", "--role", "scout",
+         "--canonical-key", "10.1/a", "--administrative"]
+    )
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-corpus-admin-test"
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    retrievals = [e for e in events if e["family"] == "retrieval"]
+    assert [e["administrative"] for e in retrievals] == [False, True, True]
+
+
 def test_corpus_search_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-corpus-refuse"])

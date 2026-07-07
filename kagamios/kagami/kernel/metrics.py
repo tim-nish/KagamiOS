@@ -224,29 +224,54 @@ DEFAULT_REDISCOVERY_WINDOW = 20
 
 
 def compute_rediscovery_rate(run_dir: Path, window: int = DEFAULT_REDISCOVERY_WINDOW) -> dict:
-    """FR-53: a warn-only saturation signal — of the run's most recent
-    `window` paper lookups (across both `corpus_search` and `corpus_expand`
-    retrieval events, in chronological order), what fraction returned a
-    paper already seen earlier in the run.
+    """FR-53/FR-57: a warn-only saturation signal — of the run's most
+    recent `window` paper lookups (across both `corpus_search` and
+    `corpus_expand` retrieval events, in chronological order), what
+    fraction returned a paper already seen *earlier in this same run*.
 
-    Reads purely off each retrieval event's own `reused` flags (Story 8.1's
-    `search_corpus`/`corpus_expand` log these directly, the same cache-hit
-    signal FR-13 already produces) — no LLM call, no re-running a query,
-    and re-running this over the same log always yields the same number
-    (same determinism contract as FR-37's other derived metrics). This is
-    reporting only: nothing here blocks, halts, or alters Scout's next
-    action, the same posture as AD-26(c)'s token-budget warning.
+    FR-57 amendment: a lookup's own `reused` flag (Story 8.1) reflects the
+    AD-18 corpus cache, which is shared *across runs* — a paper minted by
+    a previous run reads `reused: true` on its very first sighting in this
+    run's log, which is a cross-run cache hit, not within-run rediscovery.
+    This computation ignores that flag entirely and instead tracks its own
+    within-run "seen" set from each event's `paper_ids`/edge targets, in
+    log order: a paper_id counts as rediscovered only the second (or
+    later) time *this run's own event log* returns it. That set is scoped
+    to this run's own log — a paper seen only in a prior run is,
+    correctly, not yet seen *by this run*. `administrative`-flagged events
+    (FR-57: a non-exploration lookup, e.g. an orchestrator convenience
+    re-query, self-declared at issuance) are skipped entirely — they
+    neither contribute a lookup nor mark a paper_id as seen, so they can
+    neither inflate nor silently pre-seed the window.
+
+    Still a pure function over `events.jsonl` — no LLM call, no
+    re-running a query, and re-running this over the same log always
+    yields the same number (same determinism contract as FR-37's other
+    derived metrics). Reporting only: nothing here blocks, halts, or
+    alters Scout's next action, the same posture as AD-26(c)'s
+    token-budget warning.
     """
-    reused_flags: list[bool] = []
+    seen_within_run: set[str] = set()
+    lookups: list[bool] = []
+
     for event in _read_events(run_dir):
         if event.get("family") != "retrieval":
             continue
-        if event.get("kind") == "corpus_search":
-            reused_flags.extend(bool(flag) for flag in event.get("reused") or [])
-        elif event.get("kind") == "corpus_expand":
-            reused_flags.extend(bool(edge.get("reused")) for edge in event.get("edges") or [])
+        if event.get("administrative"):
+            continue
 
-    windowed = reused_flags[-window:] if window > 0 else reused_flags
+        if event.get("kind") == "corpus_search":
+            paper_ids = event.get("paper_ids") or []
+        elif event.get("kind") == "corpus_expand":
+            paper_ids = [edge.get("to") for edge in event.get("edges") or []]
+        else:
+            continue
+
+        for paper_id in paper_ids:
+            lookups.append(paper_id in seen_within_run)
+            seen_within_run.add(paper_id)
+
+    windowed = lookups[-window:] if window > 0 else lookups
     sample_size = len(windowed)
     rediscovery_rate = (sum(windowed) / sample_size) if sample_size else None
 

@@ -244,7 +244,10 @@ def _cmd_corpus_search(args: argparse.Namespace) -> dict:
     config = load_config(Path.cwd())
     try:
         provider = resolve_provider(config, provider_override=args.provider)
-        return search_corpus(run_dir, output_root, provider, args.query, args.role, limit=args.limit)
+        return search_corpus(
+            run_dir, output_root, provider, args.query, args.role,
+            limit=args.limit, administrative=args.administrative,
+        )
     except (ProviderError, CorpusAccessError) as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -263,7 +266,10 @@ def _cmd_corpus_expand(args: argparse.Namespace) -> dict:
     config = load_config(Path.cwd())
     try:
         provider = resolve_provider(config, provider_override=args.provider)
-        return corpus_expand(run_dir, output_root, provider, args.canonical_key, args.role)
+        return corpus_expand(
+            run_dir, output_root, provider, args.canonical_key, args.role,
+            administrative=args.administrative,
+        )
     except (ProviderError, CorpusAccessError) as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -910,6 +916,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", dest="limit", type=int, default=DEFAULT_SEARCH_LIMIT
     )
     corpus_search_parser.add_argument("--provider", dest="provider", default=None)
+    corpus_search_parser.add_argument(
+        "--administrative", dest="administrative", action="store_true", default=False,
+        help="FR-57: mark a non-exploration lookup (e.g. an orchestrator convenience "
+        "re-query) so it's excluded from the rediscovery-rate metric",
+    )
     corpus_search_parser.set_defaults(func=_cmd_corpus_search)
 
     corpus_expand_parser = corpus_subparsers.add_parser("expand")
@@ -917,6 +928,11 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_expand_parser.add_argument("--role", dest="role", required=True)
     corpus_expand_parser.add_argument("--canonical-key", dest="canonical_key", required=True)
     corpus_expand_parser.add_argument("--provider", dest="provider", default=None)
+    corpus_expand_parser.add_argument(
+        "--administrative", dest="administrative", action="store_true", default=False,
+        help="FR-57: mark a non-exploration lookup so it's excluded from the "
+        "rediscovery-rate metric",
+    )
     corpus_expand_parser.set_defaults(func=_cmd_corpus_expand)
 
     corpus_show_parser = corpus_subparsers.add_parser("show")
