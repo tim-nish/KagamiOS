@@ -41,3 +41,13 @@ fields:
     type: date
     profile: minimal
     author: ai
+  inherited:
+    # FR-60: true only on an artifact copied into a run by `kagami run
+    # fork` — whatever `decided_by` this artifact carries was decided in
+    # the parent run, not this one. Absent/false on every normally
+    # created artifact. `profile: full`, not minimal — never required for
+    # `validate_minimal_profile`'s completeness check (FR-16); a normal
+    # artifact legitimately never sets it.
+    type: boolean
+    profile: full
+    author: ai
