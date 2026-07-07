@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import uuid
 from pathlib import Path
 
 from kagami.config import load_config
@@ -108,6 +109,23 @@ def _entrypoint_key(args: argparse.Namespace) -> str:
         if value:
             parts.append(value)
     return ".".join(parts)
+
+
+# docs/dogfooding-review.md finding 10: `--state` (state:enter, read) and
+# `--section` (historian:write, skeptic:write) are compared against a
+# lowercase canonical vocabulary several kernel layers down
+# (state_machine.yaml's states, historian.EVOLUTION_SECTION,
+# skeptic.RED_TEAM_FIELD) — normalized once here, at the one shared
+# parsing point every entrypoint passes through, so the same input form
+# is never accepted by one subcommand and refused by another.
+_CASE_NORMALIZED_ARG_DESTS = ("state", "section")
+
+
+def _normalize_case_insensitive_args(args: argparse.Namespace) -> None:
+    for dest in _CASE_NORMALIZED_ARG_DESTS:
+        value = getattr(args, dest, None)
+        if isinstance(value, str):
+            setattr(args, dest, value.strip().lower())
 
 
 def _target_key(args: argparse.Namespace) -> str:
@@ -224,7 +242,7 @@ def _cmd_corpus_search(args: argparse.Namespace) -> dict:
     output_root = resolve_output_root()
     config = load_config(Path.cwd())
     try:
-        provider = resolve_provider(config)
+        provider = resolve_provider(config, provider_override=args.provider)
         return search_corpus(run_dir, output_root, provider, args.query, args.role, limit=args.limit)
     except (ProviderError, CorpusAccessError) as exc:
         return {"ok": False, "error": str(exc)}
@@ -243,7 +261,7 @@ def _cmd_corpus_expand(args: argparse.Namespace) -> dict:
     output_root = resolve_output_root()
     config = load_config(Path.cwd())
     try:
-        provider = resolve_provider(config)
+        provider = resolve_provider(config, provider_override=args.provider)
         return corpus_expand(run_dir, output_root, provider, args.canonical_key, args.role)
     except (ProviderError, CorpusAccessError) as exc:
         return {"ok": False, "error": str(exc)}
@@ -531,6 +549,13 @@ def _cmd_metrics_shared_payload(args: argparse.Namespace) -> dict:
 
 def _cmd_report_llm_call(args: argparse.Namespace) -> dict:
     run_dir = _run_dir(args.run_id)
+    # AD-26/docs/dogfooding-review.md finding 10: the guard's purpose is
+    # idempotency, not ceremony — a harness that forgets `--call-id` gets a
+    # freshly minted one rather than a first-attempt refusal. A harness
+    # that *wants* the idempotency guarantee still passes its own
+    # `--call-id` explicitly, so a real retry is still caught by
+    # `report_llm_call`'s duplicate check below.
+    call_id = args.call_id or str(uuid.uuid4())
     try:
         return report_llm_call(
             run_dir,
@@ -540,7 +565,7 @@ def _cmd_report_llm_call(args: argparse.Namespace) -> dict:
             args.tokens_in,
             args.tokens_out,
             args.cache_hit == "true",
-            args.call_id,
+            call_id,
         )
     except ReportError as exc:
         return {"ok": False, "error": str(exc)}
@@ -874,12 +899,14 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_search_parser.add_argument(
         "--limit", dest="limit", type=int, default=DEFAULT_SEARCH_LIMIT
     )
+    corpus_search_parser.add_argument("--provider", dest="provider", default=None)
     corpus_search_parser.set_defaults(func=_cmd_corpus_search)
 
     corpus_expand_parser = corpus_subparsers.add_parser("expand")
     corpus_expand_parser.add_argument("--run-id", dest="run_id", required=True)
     corpus_expand_parser.add_argument("--role", dest="role", required=True)
     corpus_expand_parser.add_argument("--canonical-key", dest="canonical_key", required=True)
+    corpus_expand_parser.add_argument("--provider", dest="provider", default=None)
     corpus_expand_parser.set_defaults(func=_cmd_corpus_expand)
 
     read_parser = subparsers.add_parser("read")
@@ -974,7 +1001,10 @@ def build_parser() -> argparse.ArgumentParser:
     report_llm_call_parser.add_argument(
         "--cache-hit", dest="cache_hit", choices=("true", "false"), required=True
     )
-    report_llm_call_parser.add_argument("--call-id", dest="call_id", required=True)
+    report_llm_call_parser.add_argument(
+        "--call-id", dest="call_id", default=None,
+        help="idempotency key (AD-26); auto-minted via uuid4 when omitted",
+    )
     report_llm_call_parser.set_defaults(func=_cmd_report_llm_call)
 
     dispatch_parser = subparsers.add_parser("dispatch")
@@ -1003,6 +1033,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _normalize_case_insensitive_args(args)
     try:
         result = args.func(args)
     except json.JSONDecodeError as exc:

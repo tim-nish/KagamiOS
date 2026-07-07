@@ -258,15 +258,23 @@ PROVIDER_REGISTRY = {
 DEFAULT_LITERATURE_PROVIDER = "openalex"
 
 
-def resolve_provider(config: dict | None = None, fetch: Fetch | None = None) -> LiteratureProvider:
-    """AD-7: the default provider comes from config, never from a call site.
+def resolve_provider(
+    config: dict | None = None,
+    fetch: Fetch | None = None,
+    provider_override: str | None = None,
+) -> LiteratureProvider:
+    """AD-7: the default provider comes from config, never hardcoded at a
+    call site — but a caller may still name one explicitly via
+    `provider_override` (FR-15/FR-25/AD-26 story 9.3: the CLI's
+    `--provider` flag), which wins over `config.yaml`'s default so a
+    single broken/rate-limited provider doesn't stall a whole search.
 
     `config` is the parsed `config.yaml` (or an empty dict); provider
     credentials are read by each adapter directly from environment
     variables, never passed through `config`.
     """
     config = config or {}
-    provider_name = config.get("literature_provider", DEFAULT_LITERATURE_PROVIDER)
+    provider_name = provider_override or config.get("literature_provider", DEFAULT_LITERATURE_PROVIDER)
     try:
         provider_cls = PROVIDER_REGISTRY[provider_name]
     except KeyError:

@@ -51,3 +51,29 @@ def test_read_rejects_unknown_resolution(tmp_path):
     art = create_artifact(tmp_path, "researcher-profile", _base_fields(), sections={"notes": "x"})
     with pytest.raises(ConsumptionError):
         read_artifact(tmp_path, "frame", "researcher-profile", art["id"], "half")
+
+
+def test_the_two_fr15_disallowed_read_variants_share_shape_and_wording(tmp_path):
+    """docs/dogfooding-review.md finding 10: an unknown state (no
+    consumption map defined at all) and a known state reading a type
+    outside its map are two different failures one layer down, but a
+    caller must not be able to tell which code path refused it from the
+    error text alone."""
+    known_state_wrong_type = create_artifact(
+        tmp_path, "gap-register", _base_fields(), sections={"statement": "x"}
+    )
+    with pytest.raises(ConsumptionError) as known_state_exc:
+        read_artifact(tmp_path, "frame", "gap-register", known_state_wrong_type["id"], "summary")
+
+    unknown_state_art = create_artifact(
+        tmp_path, "researcher-profile", _base_fields(), sections={"notes": "x"}
+    )
+    with pytest.raises(ConsumptionError) as unknown_state_exc:
+        read_artifact(tmp_path, "not-a-real-state", "researcher-profile", unknown_state_art["id"], "summary")
+
+    assert str(known_state_exc.value) == (
+        "state 'frame' has no defined brief for reading 'gap-register' (FR-15)"
+    )
+    assert str(unknown_state_exc.value) == (
+        "state 'not-a-real-state' has no defined brief for reading 'researcher-profile' (FR-15)"
+    )
