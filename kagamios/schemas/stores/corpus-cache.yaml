@@ -26,3 +26,11 @@ fields:
     type: list[object]
     profile: full
     author: ai
+  content_source:
+    # FR-54: which rung of the AD-29 sensor cost ladder produced the
+    # content fields above — "abstract" when extraction ran, "none" when
+    # the provider carried no abstract to extract from. An exposed
+    # provider bias, never a silently-fabricated summary.
+    type: string
+    profile: minimal
+    author: ai

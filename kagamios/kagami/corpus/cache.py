@@ -4,6 +4,12 @@ from typing import Callable
 
 import yaml
 
+from kagami.corpus.extraction import (
+    CONTENT_SOURCE_ABSTRACT,
+    CONTENT_SOURCE_NONE,
+    Extractor,
+    extract_card_content,
+)
 from kagami.store.atomic import atomic_write
 from kagami.store.locking import acquire_run_lock
 
@@ -48,12 +54,22 @@ def _paper_path(output_root: Path, paper_id: str) -> Path:
 
 
 def get_or_create_paper_card(
-    output_root: Path, canonical_key: str, compute: Callable[[], dict]
+    output_root: Path,
+    canonical_key: str,
+    compute: Callable[[], dict],
+    extract: Extractor = extract_card_content,
 ) -> tuple[dict, bool]:
     """AD-18/SPEC CAP-6: a paper card is computed once and reused across runs.
 
     Returns (card, reused) — `reused` is True when an existing cache entry
-    satisfied the request without calling `compute`.
+    satisfied the request without calling `compute` (or `extract`).
+
+    FR-54/AD-29: on a cache miss, `extract` runs at most once — never on a
+    cache hit — populating the card's content fields from `compute()`'s
+    title+abstract. A provider result with no abstract (or no `extract`
+    injected) leaves the content fields empty and marks `content_source`
+    accordingly — a real sensor bias, exposed rather than papered over,
+    never fabricated or approximated content.
     """
     paper_id = mint_paper_id(canonical_key)
     corpus_dir = _corpus_dir(output_root)
@@ -67,14 +83,24 @@ def get_or_create_paper_card(
 
         raw = compute()
         _reject_frame_dependent_fields(raw)
+
+        abstract = (raw.get("abstract") or "").strip()
+        if abstract and extract is not None:
+            content = extract(raw.get("title", ""), abstract)
+            content_source = CONTENT_SOURCE_ABSTRACT
+        else:
+            content = {"contribution_line": "", "method_class": "", "evidence_type": "", "key_claims": []}
+            content_source = CONTENT_SOURCE_NONE
+
         card = {
             "id": paper_id,
             "schema_version": PAPER_CARD_SCHEMA_VERSION,
             "bibliographic_identity": canonical_key,
-            "contribution_line": raw.get("contribution_line", ""),
-            "method_class": raw.get("method_class", ""),
-            "evidence_type": raw.get("evidence_type", ""),
-            "key_claims": raw.get("key_claims", []),
+            "contribution_line": content["contribution_line"],
+            "method_class": content["method_class"],
+            "evidence_type": content["evidence_type"],
+            "key_claims": content["key_claims"],
+            "content_source": content_source,
             "title": raw.get("title", ""),
             "source": raw.get("source", ""),
         }

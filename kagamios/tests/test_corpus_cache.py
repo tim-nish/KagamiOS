@@ -1,6 +1,7 @@
 import pytest
 
 from kagami.corpus.cache import CorpusCacheError, get_or_create_paper_card, mint_paper_id
+from kagami.corpus.extraction import CONTENT_SOURCE_ABSTRACT, CONTENT_SOURCE_NONE
 
 
 def test_mint_paper_id_is_deterministic_and_content_derived():
@@ -71,3 +72,79 @@ def test_get_or_create_with_no_frame_dependent_fields_still_succeeds(tmp_path):
     card, reused = get_or_create_paper_card(tmp_path, "10.1/xyz", lambda: {"title": "Clean"})
     assert reused is False
     assert card["title"] == "Clean"
+
+
+def test_no_abstract_yields_empty_content_fields_and_a_none_content_source(tmp_path):
+    """FR-54: providers without abstract data (arXiv, GitHub, as of this
+    writing) must never fabricate or approximate content — an exposed
+    provider bias instead."""
+    card, _ = get_or_create_paper_card(tmp_path, "10.1/abc", lambda: {"title": "A", "source": "arxiv"})
+    assert card["contribution_line"] == ""
+    assert card["method_class"] == ""
+    assert card["evidence_type"] == ""
+    assert card["key_claims"] == []
+    assert card["content_source"] == CONTENT_SOURCE_NONE
+
+
+def test_an_abstract_triggers_extraction_and_populates_content_fields(tmp_path):
+    """FR-54: on a cache miss, a provider result carrying a title and
+    abstract runs the mint-time extractor and lands its output on the
+    card, fixture-tested here with a recorded (fake) abstract."""
+    seen = []
+
+    def fake_extract(title, abstract):
+        seen.append((title, abstract))
+        return {
+            "contribution_line": "line",
+            "method_class": "empirical",
+            "evidence_type": "quantitative",
+            "key_claims": ["claim"],
+        }
+
+    card, reused = get_or_create_paper_card(
+        tmp_path,
+        "10.1/abc",
+        lambda: {"title": "A", "abstract": "some recorded abstract text", "source": "openalex"},
+        extract=fake_extract,
+    )
+
+    assert reused is False
+    assert seen == [("A", "some recorded abstract text")]
+    assert card["contribution_line"] == "line"
+    assert card["method_class"] == "empirical"
+    assert card["evidence_type"] == "quantitative"
+    assert card["key_claims"] == ["claim"]
+    assert card["content_source"] == CONTENT_SOURCE_ABSTRACT
+
+
+def test_extraction_runs_once_ever_never_re_triggered_on_a_cache_hit(tmp_path):
+    """FR-54/AD-18: extraction runs once, ever, at mint time — a second
+    request for the same canonical_key must return the cached card
+    unchanged, without calling `extract` again."""
+    calls = {"n": 0}
+
+    def fake_extract(title, abstract):
+        calls["n"] += 1
+        return {"contribution_line": "x", "method_class": "empirical", "evidence_type": "qualitative", "key_claims": []}
+
+    compute = lambda: {"title": "A", "abstract": "recorded abstract"}
+
+    card1, reused1 = get_or_create_paper_card(tmp_path, "10.1/abc", compute, extract=fake_extract)
+    assert reused1 is False
+    assert calls["n"] == 1
+
+    card2, reused2 = get_or_create_paper_card(tmp_path, "10.1/abc", compute, extract=fake_extract)
+    assert reused2 is True
+    assert calls["n"] == 1
+    assert card2 == card1
+
+
+@pytest.mark.parametrize("field", ["relevance", "priority", "judgment", "meaningful_to_me"])
+def test_forbidden_card_fields_are_still_refused_alongside_an_abstract(tmp_path, field):
+    """FR-52/AD-28: extraction adds content fields, never a judgment field
+    — the FORBIDDEN_CARD_FIELDS chokepoint invariant is unchanged by this
+    extension, even when the raw input also carries an abstract."""
+    with pytest.raises(CorpusCacheError):
+        get_or_create_paper_card(
+            tmp_path, "10.1/abc", lambda: {"title": "A", "abstract": "some abstract", field: "x"}
+        )

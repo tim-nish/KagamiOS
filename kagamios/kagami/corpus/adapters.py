@@ -43,6 +43,20 @@ def _arxiv_default_fetch(url: str) -> dict:
         return _parse_arxiv_feed(response.read())
 
 
+def _reconstruct_openalex_abstract(inverted_index: dict | None) -> str:
+    """FR-54/change-signal-paper-content-2026-07-06.md: OpenAlex never
+    returns a plain abstract string — `abstract_inverted_index` maps each
+    word to its position(s) in the original text (to dodge publisher
+    copyright on full-text redistribution). Reassembling it is zero extra
+    retrieval: the index already rides on the same search/works response
+    `_to_result` reads everything else from."""
+    if not inverted_index:
+        return ""
+    positioned = [(pos, word) for word, positions in inverted_index.items() for pos in positions]
+    positioned.sort()
+    return " ".join(word for _, word in positioned)
+
+
 class _BackoffMixin:
     """NFR7: every adapter's `_fetch` call goes through this so a
     documented rate limit is retried with backoff, never surfaced as a
@@ -105,6 +119,7 @@ class OpenAlexProvider(_BackoffMixin, LiteratureProvider):
             "canonical_key": raw.get("doi") or raw.get("id"),
             "title": raw.get("title"),
             "source": self.name,
+            "abstract": _reconstruct_openalex_abstract(raw.get("abstract_inverted_index")),
         }
 
 
@@ -159,6 +174,7 @@ class SemanticScholarProvider(_BackoffMixin, LiteratureProvider):
             "canonical_key": raw.get("paperId") or raw.get("externalIds", {}).get("DOI"),
             "title": raw.get("title"),
             "source": self.name,
+            "abstract": raw.get("abstract") or "",
         }
 
 
