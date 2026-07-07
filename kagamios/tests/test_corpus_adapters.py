@@ -210,6 +210,15 @@ def test_resolve_provider_defaults_to_config_value_no_call_site_hardcodes_it():
     assert isinstance(provider, ArxivProvider)
 
 
+def test_resolve_provider_override_wins_over_configs_default():
+    """FR-15/FR-25/story 9.3: `--provider` routes around a single broken
+    or rate-limited provider without needing to edit `config.yaml`."""
+    provider = resolve_provider(
+        {"literature_provider": "openalex"}, fetch=_fake_fetch("arxiv"), provider_override="arxiv"
+    )
+    assert isinstance(provider, ArxivProvider)
+
+
 def test_resolve_provider_falls_back_to_default_when_config_is_empty():
     provider = resolve_provider({}, fetch=_fake_fetch(DEFAULT_LITERATURE_PROVIDER))
     assert provider.name == DEFAULT_LITERATURE_PROVIDER

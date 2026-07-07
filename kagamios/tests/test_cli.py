@@ -144,6 +144,44 @@ def test_accept_and_read_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     assert metrics_out == {"ok": True, "full_pull_after_summary_count": 0}
 
 
+def test_read_state_argument_is_case_normalized_through_cli(tmp_path, monkeypatch, capsys):
+    """docs/dogfooding-review.md finding 10: 'Frame' must be accepted the
+    same as 'frame' — the same input form is never accepted in one
+    entrypoint and refused in another."""
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-state-case-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-state-case-test"
+    result = create_artifact(
+        run_dir,
+        "researcher-profile",
+        {"depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": ""},
+        sections={"notes": "background"},
+    )
+
+    exit_code = main(
+        ["read", "--run-id", "run-state-case-test", "--state", "  Frame  ", "--type", "researcher-profile",
+         "--art-id", result["id"], "--resolution", "summary"]
+    )
+    read_out = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert read_out["ok"] is True
+
+
+def test_state_enter_argument_is_case_normalized_through_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-state-enter-case-test"])
+    capsys.readouterr()
+
+    exit_code = main(["state", "enter", "--run-id", "run-state-enter-case-test", "--state", "Frame"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+
 def test_entry_start_state_enter_frame_complete_round_trip_through_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-cli-frame"])
@@ -398,6 +436,32 @@ def test_historian_write_refuses_a_non_evolution_section_through_cli(tmp_path, m
     exit_code = main(
         ["historian", "write", "--run-id", "run-historian-test", "--art-id", dossier["id"],
          "--section", "evolution", "--body", "the field began with X"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+
+
+def test_historian_write_section_argument_is_case_normalized_through_cli(tmp_path, monkeypatch, capsys):
+    """docs/dogfooding-review.md finding 10: 'Evolution' must be accepted
+    the same as 'evolution'."""
+    from kagami.store.artifact import create_artifact
+
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-historian-case-test"])
+    capsys.readouterr()
+
+    run_dir = tmp_path / "_kagami-output" / "runs" / "run-historian-case-test"
+    dossier = create_artifact(
+        run_dir,
+        "cluster-dossier",
+        {"depends_on": [], "elicited_from": [], "decided_by": "ai-drafted/human-reviewed", "summary": ""},
+        sections={"evolution": "x", "frontier": "y"},
+    )
+
+    exit_code = main(
+        ["historian", "write", "--run-id", "run-historian-case-test", "--art-id", dossier["id"],
+         "--section", " Evolution ", "--body", "the field began with X"]
     )
     result = json.loads(capsys.readouterr().out)
     assert exit_code == 0
@@ -691,7 +755,7 @@ def test_corpus_search_cli_resolves_provider_from_config_not_a_hardcoded_call_si
 
     captured_config = {}
 
-    def _fake_resolve_provider(config, fetch=None):
+    def _fake_resolve_provider(config, fetch=None, provider_override=None):
         captured_config.update(config)
         return _StubProvider()
 
@@ -710,6 +774,42 @@ def test_corpus_search_cli_resolves_provider_from_config_not_a_hardcoded_call_si
     assert result["ok"] is True
     assert result["papers"][0]["bibliographic_identity"] == "10.1/a"
     assert captured_config == {"literature_provider": "stub"}
+
+
+def test_corpus_search_cli_provider_flag_overrides_configs_default(tmp_path, monkeypatch, capsys):
+    """Story 9.3/FR-15/FR-25: `--provider` routes around a single broken or
+    rate-limited provider without losing the whole search — resilience run
+    1 had no route around."""
+    import kagami.cli as cli_module
+
+    captured_override = {}
+
+    def _fake_resolve_provider(config, fetch=None, provider_override=None):
+        captured_override["value"] = provider_override
+
+        class _StubProvider:
+            name = "stub"
+
+            def search(self, query, limit=20):
+                return []
+
+        return _StubProvider()
+
+    monkeypatch.setattr(cli_module, "resolve_provider", _fake_resolve_provider)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("literature_provider: openalex\n")
+
+    main(["run", "open", "--run-id", "run-corpus-provider-test"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["corpus", "search", "--run-id", "run-corpus-provider-test", "--role", "scout",
+         "--query", "signatures", "--provider", "arxiv"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert captured_override["value"] == "arxiv"
 
 
 def test_corpus_search_cli_defaults_limit_to_eight_and_forwards_an_explicit_override(
@@ -734,7 +834,7 @@ def test_corpus_search_cli_defaults_limit_to_eight_and_forwards_an_explicit_over
         def citation_graph(self, canonical_key):
             raise NotImplementedError
 
-    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None: _StubProvider())
+    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None, provider_override=None: _StubProvider())
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-corpus-limit-test"])
     capsys.readouterr()
@@ -780,7 +880,7 @@ def test_corpus_expand_cli_mints_neighbor_cards_and_logs_edges(tmp_path, monkeyp
         def citation_graph(self, canonical_key):
             return {"canonical_key": canonical_key, "cited_by": ["10.1/b"], "references": []}
 
-    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None: _StubProvider())
+    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None, provider_override=None: _StubProvider())
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-corpus-expand-test"])
     capsys.readouterr()
@@ -793,6 +893,44 @@ def test_corpus_expand_cli_mints_neighbor_cards_and_logs_edges(tmp_path, monkeyp
     assert result["ok"] is True
     assert len(result["edges"]) == 1
     assert result["edges"][0]["direction"] == "cited_by"
+
+
+def test_corpus_expand_cli_provider_flag_overrides_configs_default(tmp_path, monkeypatch, capsys):
+    import kagami.cli as cli_module
+    from kagami.corpus.provider import LiteratureProvider
+
+    captured_override = {}
+
+    class _StubProvider(LiteratureProvider):
+        name = "stub"
+
+        def search(self, query, limit=20):
+            raise NotImplementedError
+
+        def paper_metadata(self, canonical_key):
+            return {"canonical_key": canonical_key, "title": "Neighbor", "source": "stub"}
+
+        def citation_graph(self, canonical_key):
+            return {"canonical_key": canonical_key, "cited_by": [], "references": []}
+
+    def _fake_resolve_provider(config, fetch=None, provider_override=None):
+        captured_override["value"] = provider_override
+        return _StubProvider()
+
+    monkeypatch.setattr(cli_module, "resolve_provider", _fake_resolve_provider)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("literature_provider: openalex\n")
+    main(["run", "open", "--run-id", "run-corpus-expand-provider-test"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["corpus", "expand", "--run-id", "run-corpus-expand-provider-test", "--role", "scout",
+         "--canonical-key", "10.1/a", "--provider", "arxiv"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert captured_override["value"] == "arxiv"
 
 
 def test_corpus_expand_cli_refuses_a_non_scout_role(tmp_path, monkeypatch, capsys):
@@ -925,7 +1063,7 @@ def test_metrics_rediscovery_rate_cli_computes_over_real_corpus_search_events(
         def citation_graph(self, canonical_key):
             raise NotImplementedError
 
-    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None: _StubProvider())
+    monkeypatch.setattr(cli_module, "resolve_provider", lambda config, fetch=None, provider_override=None: _StubProvider())
     monkeypatch.chdir(tmp_path)
     main(["run", "open", "--run-id", "run-rediscovery-test"])
     capsys.readouterr()
@@ -1009,6 +1147,62 @@ def test_metrics_shared_payload_refuses_by_default_then_succeeds_once_opted_in_t
     assert exit_code == 0
     assert allowed["ok"] is True
     assert "event_class_counts" in allowed
+
+
+def test_report_llm_call_auto_mints_a_call_id_when_omitted_through_cli(tmp_path, monkeypatch, capsys):
+    """AD-26/docs/dogfooding-review.md finding 10: the guard's purpose is
+    idempotency, not ceremony — a harness that omits `--call-id` still
+    gets a logged, well-formed event instead of the first-attempt stumble
+    every role hit in run 1."""
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-report-autoid-test"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["report", "llm-call", "--run-id", "run-report-autoid-test", "--role", "scout",
+         "--operation-class", "paper_card_extraction", "--model-tier", "cheap-model",
+         "--tokens-in", "10", "--tokens-out", "5", "--cache-hit", "false"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert result["ok"] is True
+    assert result["event"]["call_id"]
+
+    # A second omitted-call-id report is a distinct call, not a refused
+    # duplicate — each auto-minted id is fresh.
+    exit_code = main(
+        ["report", "llm-call", "--run-id", "run-report-autoid-test", "--role", "scout",
+         "--operation-class", "paper_card_extraction", "--model-tier", "cheap-model",
+         "--tokens-in", "10", "--tokens-out", "5", "--cache-hit", "false"]
+    )
+    second = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert second["ok"] is True
+    assert second["event"]["call_id"] != result["event"]["call_id"]
+
+
+def test_report_llm_call_duplicate_explicit_call_id_is_still_refused_through_cli(tmp_path, monkeypatch, capsys):
+    """Confirms auto-minting doesn't weaken AD-26: a harness that opts into
+    the idempotency guarantee by passing its own `--call-id` is still
+    protected against a retried report double-inflating the ledger."""
+    monkeypatch.chdir(tmp_path)
+    main(["run", "open", "--run-id", "run-report-dup-test"])
+    capsys.readouterr()
+
+    argv = [
+        "report", "llm-call", "--run-id", "run-report-dup-test", "--role", "scout",
+        "--operation-class", "paper_card_extraction", "--model-tier", "cheap-model",
+        "--tokens-in", "10", "--tokens-out", "5", "--cache-hit", "false", "--call-id", "call-fixed",
+    ]
+    exit_code = main(argv)
+    first = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert first["ok"] is True
+
+    exit_code = main(argv)
+    second = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert second["ok"] is False
 
 
 def test_gate_propose_and_approve_round_trip_through_cli(tmp_path, monkeypatch, capsys):

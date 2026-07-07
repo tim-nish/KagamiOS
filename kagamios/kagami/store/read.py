@@ -11,6 +11,17 @@ class ConsumptionError(Exception):
     pass
 
 
+def _disallowed_read_error(state: str, type_slug: str) -> ConsumptionError:
+    """docs/dogfooding-review.md finding 10: an unknown state (no
+    consumption map defined at all) and a known state reading outside its
+    map are two different failures one layer down, but to a caller both
+    are just 'this read is refused' — same shape and wording either way,
+    so no code path can be told apart from the error text alone."""
+    return ConsumptionError(
+        f"state '{state}' has no defined brief for reading '{type_slug}' (FR-15)"
+    )
+
+
 def read_artifact(
     run_dir: Path,
     state: str,
@@ -28,12 +39,10 @@ def read_artifact(
     registry = registry or load_registry()
     try:
         allowed = registry.can_read(state, type_slug)
-    except RegistryError as exc:
-        raise ConsumptionError(str(exc)) from None
+    except RegistryError:
+        raise _disallowed_read_error(state, type_slug) from None
     if not allowed:
-        raise ConsumptionError(
-            f"state '{state}' has no defined brief for reading '{type_slug}' (FR-15)"
-        )
+        raise _disallowed_read_error(state, type_slug)
 
     frontmatter, sections = read_current(run_dir, type_slug, art_id)
 
