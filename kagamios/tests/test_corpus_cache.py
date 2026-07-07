@@ -182,6 +182,29 @@ def test_read_paper_card_succeeds_from_an_allowed_state_and_logs_a_retrieval_eve
     assert retrievals[0]["paper_id"] == minted["id"]
 
 
+def test_direct_read_of_the_corpus_cache_file_is_denied_but_fr55_path_still_reaches_the_content(tmp_path):
+    """FR-56/Story 10.3 AC 3: closing the direct-`Read` workaround must not
+    strand any content — the same paper-card content a direct `Read` used
+    to reach is still reachable through the FR-55 `read_paper_card` path."""
+    from kagami.hookguard import evaluate
+    from kagami.paths import resolve_output_root
+
+    output_root = resolve_output_root(tmp_path)
+    open_run(run_id="run-guard-closure", output_root=output_root)
+    run_dir = output_root / "runs" / "run-guard-closure"
+
+    minted, _ = get_or_create_paper_card(output_root, "10.1/abc", lambda: {"title": "A", "source": "openalex"})
+    card_path = output_root / "corpus" / f"{minted['id']}.yaml"
+    assert card_path.is_file()
+
+    denial = evaluate("Read", {"file_path": str(card_path)}, str(tmp_path))
+    assert denial["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    result = read_paper_card(run_dir, output_root, "deepen", minted["id"])
+    assert result["ok"] is True
+    assert result["card"] == minted
+
+
 def test_read_paper_card_is_refused_from_a_state_without_a_defined_brief(tmp_path):
     """FR-55/Story 10.2's audit: Synthesize and Locate do not read
     paper-card content directly — extending consumption_map.yaml is a
